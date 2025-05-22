@@ -1,63 +1,72 @@
 // =================================================================================================
 // ESP32-CAM Servo Robot with Video Stream, OTA, Basic Authentication, and NVS Calibration
-// Version 3.2.0 - Polished Release
-// - Comprehensive review and polish of comments and code structure for clarity.
-// - Cleaned up verbose Serial print statements for a cleaner console output.
-// - Ensured all recent features (stream client handling, NVS camera settings, UI updates)
-//   are integrated and functioning.
-// - This version is intended as a stable, shareable baseline.
+//
+// Version 4.0.0 - Definitive Edition (2025-05-22)
+// - Final review and polish of all code and comments for clarity and long-term maintainability.
+// - Comprehensive documentation embedded within the code.
+// - Ensured all features up to V3.7.3 are stable and well-commented.
+// - Removed all non-essential Serial.print statements.
+// - This version is intended as a feature-complete, stable, and shareable baseline.
+//
+// Key Version History (Recent Major Changes):
+//   V3.7.3: Stream/AP Mode Fixes & Battery Critical Handling.
+//   V3.7.0: WebSockets, Advanced Sleep, AP Mode, UI Enhancements.
+//   V3.6.x: Light Sleep Mode implementation and refinements.
+//   V3.5.0: Snapshot feature removed, Serial logging cleaned.
+//   V3.4.x: Snapshot feature attempts, RSSI display.
+//   V3.0.0 - V3.3.x: Initial NVS, UI enhancements, multi-client stream, compiler fixes.
 //
 // Project Overview:
 // This firmware transforms an ESP32-CAM module into a versatile Wi-Fi controlled robot.
 // It's designed for hobbyists and enthusiasts looking to build a feature-rich remote-controlled
 // device with live video feedback.
 //
-// Key Features:
-// - Live MJPEG Video Streaming: View real-time video from the ESP32-CAM.
-//   (UI rotates the stream -90 degrees to compensate for typical camera module orientation).
-// - Dual Servo Control: Precise control for two 360-degree continuous rotation servos,
-//   enabling differential drive movement (forward, backward, turns, pivots).
-// - Web-Based User Interface:
-//   - Responsive design accessible from desktop and mobile browsers.
-//   - Joystick Control: Intuitive virtual joystick for movement (default: left side;
-//     mobile: bottom-center, semi-transparent).
-//   - Slider Control: Alternative dual vertical sliders for independent left/right motor speed.
-// - Onboard LED Control: Adjustable brightness for the ESP32-CAM's flash LED, with gamma
-//   correction for more linear perceived brightness.
-// - LiPo Battery Monitoring:
-//   - Displays the connected LiPo battery's voltage in the UI.
-//   - Visual battery bar (3.2V - 4.2V range) with color-coding for quick status.
-//   - Updates frequently to observe voltage sag under load.
-// - Over-The-Air (OTA) Firmware Updates: Update the ESP32's firmware wirelessly via the
-//   Arduino IDE or a web browser, eliminating the need for physical serial connections.
-// - Basic HTTP Authentication: Protects access to the web interface and video stream
-//   with a username and password.
-// - Non-Volatile Storage (NVS) for Calibration:
-//   - Servo Calibration: Fine-tune servo stop pulse and deadzone for each motor via the UI.
-//   - LiPo ADC Calibration: Calibrate the voltage divider ratio for accurate battery readings.
-//   - Camera Settings: Persistently stores the last used video resolution and quality.
-//   - All calibration data is saved to the ESP32's NVS and loaded on boot.
+// Core Features:
+// - Live MJPEG Video Streaming: Real-time video feed via HTTP.
+// - Dual Servo Control: For differential drive movement.
+// - Web-Based User Interface (UI):
+//   - Responsive design for desktop and mobile.
+//   - HTML/CSS/JS stored in PROGMEM to conserve RAM.
+//   - Joystick and Slider control modes.
+//   - Real-time status display (Connection, LiPo, Wi-Fi RSSI, Sleep State, FPS).
+// - Onboard LED Control: Adjustable brightness with gamma correction.
+// - Battery Monitoring: LiPo voltage display and visual bar, with critical level handling.
+// - Wi-Fi Management:
+//   - Connects to a configured STA network.
+//   - Falls back to Access Point (AP) mode ("ESP32-CAM-Robot-Setup") if STA connection fails,
+//     allowing Wi-Fi credentials to be configured via the web UI.
+// - Over-The-Air (OTA) Firmware Updates: Wireless updates via Arduino IDE or web browser.
+// - Basic HTTP Authentication: Secures access to the web interface and stream.
+// - Non-Volatile Storage (NVS): Persistently stores:
+//   - Servo calibration (stop pulse, deadzone).
+//   - LiPo ADC calibration (voltage divider ratio).
+//   - Camera settings (resolution, quality, brightness, contrast, saturation).
+//   - Light sleep mode enable/disable preference.
+//   - Wi-Fi STA credentials.
 // - Dual-Core Processing (ESP32):
-//   - Core 0: Dedicated to handling Wi-Fi, web server requests, API calls, and OTA updates.
-//   - Core 1: Dedicated to capturing and streaming video frames for smoother performance.
-// - Stream Client Management: Serves the video stream to only the most recently connected client.
-//   If a new client requests the stream, the previous client is disconnected.
+//   - Core 0: Wi-Fi, WebServer, WebSockets, OTA, Application Logic.
+//   - Core 1: Video Streaming Task.
+// - WebSockets: Used for most real-time control commands and status updates, reducing HTTP overhead.
+// - Light Sleep Mode:
+//   - Reduces power consumption after a configurable period of inactivity.
+//   - Wakes on Wi-Fi activity or a periodic timer.
+//   - UI toggle to enable/disable this feature.
 //
 // Origins:
 // Based on concepts from the "esp32-caretaker" project by positron48 and significantly
-// extended and refactored.
+// extended and refactored throughout this development process.
 //
 // -------------------------------------------------------------------------------------------------
 // GPIO Pin Assignments (AI-Thinker ESP32-CAM Model assumed):
 // -------------------------------------------------------------------------------------------------
-// Internal Camera Connections (Do Not Change - Standard for ESP32-CAM AI-Thinker):
+// Internal Camera Connections (Standard for ESP32-CAM AI-Thinker - Do Not Change):
 // - GPIO 0:  XCLK_GPIO_NUM (Camera Clock Input)
 // - GPIO 5:  Y2_GPIO_NUM   (Camera Data Line 0)
 // - GPIO 18: Y3_GPIO_NUM   (Camera Data Line 1)
 // - GPIO 19: Y4_GPIO_NUM   (Camera Data Line 2)
 // - GPIO 21: Y5_GPIO_NUM   (Camera Data Line 3)
-// - GPIO 36: Y6_GPIO_NUM   (Camera Data Line 4) (Note: Often labeled VP on schematics)
-// - GPIO 39: Y7_GPIO_NUM   (Camera Data Line 5) (Note: Often labeled VN on schematics)
+// - GPIO 36: Y6_GPIO_NUM   (Camera Data Line 4) (Often VP on schematics)
+// - GPIO 39: Y7_GPIO_NUM   (Camera Data Line 5) (Often VN on schematics)
 // - GPIO 34: Y8_GPIO_NUM   (Camera Data Line 6)
 // - GPIO 35: Y9_GPIO_NUM   (Camera Data Line 7)
 // - GPIO 22: PCLK_GPIO_NUM (Camera Pixel Clock Output)
@@ -72,93 +81,102 @@
 // - GPIO 12: SERVO_LEFT_PIN  (Signal for Left Servo)
 // - GPIO 13: SERVO_RIGHT_PIN (Signal for Right Servo)
 // - GPIO 33: LIPO_ADC_PIN    (Analog input for LiPo voltage divider. Often connected to onboard RED status LED trace)
-// - GPIO 1 (U0TXD), GPIO 3 (U0RXD): Used for Serial Programming/Debugging.
+// - GPIO 1 (U0TXD), GPIO 3 (U0RXD): Used for Serial Programming/Debugging (if accessible).
 //
 // -------------------------------------------------------------------------------------------------
 // User Configuration Notes:
 // -------------------------------------------------------------------------------------------------
-// 1. WiFi Credentials: Update `WIFI_SSID` and `WIFI_PASSWORD` constants below with your network details.
-// 2. HTTP Authentication: CRITICAL - CHANGE `HTTP_AUTH_USERNAME` and `HTTP_AUTH_PASSWORD`
-//    for security before exposing the device, even on a local network.
-// 3. OTA Password: CRITICAL - CHANGE `OTA_PASSWORD` for security.
-// 4. Servo Calibration:
-//    - Access the web UI (Settings -> Calibration).
-//    - Fine-tune "Stop Pulse" (center point, typically around 1500µs) and "Pulse Deadzone"
-//      (range around stop where servo doesn't move, e.g., 20-50µs) for each servo.
-//    - The movement range (Min/Max pulse) is determined by `SERVO_PULSE_SPAN_US` relative to the stop pulse.
-//    - Save settings to NVS. Initial defaults are provided but WILL LIKELY NEED ADJUSTMENT.
-// 5. LiPo Voltage Divider Calibration:
-//    - Connect your LiPo battery via a voltage divider to `LIPO_ADC_PIN` (GPIO33).
-//    - In the UI (Settings -> Calibration), set the "Voltage Divider Ratio" based on your
-//      resistor values (Ratio = (R1+R2)/R2, where R2 is connected to GND and ADC input is between R1 and R2).
-//    - Example: If R1=22k, R2=10k, Ratio = (22+10)/10 = 3.2.
-//    - Save to NVS.
-// 6. Camera Settings:
-//    - Resolution and JPEG quality can be adjusted in the UI (Settings -> Video).
-//    - These settings are automatically saved to NVS when changed and loaded on boot.
+// 1. Initial Setup: On first boot or if STA connection fails, the robot starts in AP Mode.
+//    Connect to "ESP32-CAM-Robot-Setup" Wi-Fi (default password: "password123").
+//    Open 192.168.4.1 in a browser. Use the Settings panel (gear icon) to navigate to
+//    "Wi-Fi Configuration (AP Mode)" section. Enter your home Wi-Fi SSID & Password.
+//    Click "Connect & Restart Robot". The robot will save these and restart to attempt
+//    connection to your specified network.
+// 2. Default Wi-Fi Credentials: `nvs_wifi_ssid` and `nvs_wifi_password` in code are defaults
+//    if NVS is empty. They are overwritten by AP mode configuration.
+// 3. HTTP Authentication: CRITICAL - CHANGE `HTTP_AUTH_USERNAME` and `HTTP_AUTH_PASSWORD`
+//    constants below for security.
+// 4. OTA Password: CRITICAL - CHANGE `OTA_PASSWORD` constant for security.
+// 5. Servo Calibration: Access the web UI (Settings -> Calibration). Fine-tune "Stop Pulse"
+//    (typically around 1500µs) and "Pulse Deadzone" (e.g., 20-50µs) for each servo.
+//    Save settings to NVS.
+// 6. LiPo Voltage Divider Calibration: In UI (Settings -> Calibration), set the
+//    "Voltage Divider Ratio" based on your resistor values (Ratio = (R1+R2)/R2).
+//    Save to NVS.
+// 7. Camera Settings: Resolution, JPEG quality, brightness, contrast, and saturation
+//    are adjustable in the UI (Settings -> Video) and saved to NVS.
+// 8. Sleep Mode: Can be enabled/disabled in UI settings (Settings -> Power Saving).
 // =================================================================================================
 
 // =================================================================================================
 // 1. INCLUDES
 // =================================================================================================
-
-// ESP32 Core Libraries (Author: Espressif Systems, Version: Tied to ESP32 Arduino Core v2.0.14, based on ESP-IDF v4.4.x)
-#include <WiFi.h>             // For Wi-Fi connectivity (connect, manage network)
+// ESP32 Core Libraries
+#include <WiFi.h>             // For Wi-Fi connectivity (connect, manage network, RSSI)
 #include <WiFiUdp.h>          // For UDP communication, used by ArduinoOTA
 #include <ESPmDNS.h>          // For mDNS (Multicast DNS) service discovery, used by ArduinoOTA
 #include <ArduinoOTA.h>       // For Over-The-Air firmware updates
-#include <WebServer.h>        // For creating the HTTP web server
-#include <esp_camera.h>       // For ESP32 camera functions and configurations
-#include <Preferences.h>      // For NVS (Non-Volatile Storage) to save settings persistently
+#include <WebServer.h>        // For creating the HTTP web server (ESP8266/ESP32 WebServer library)
+#include <WebSocketsServer.h> // For WebSocket communication (e.g., by Markus Sattler)
+#include <esp_camera.h>       // For ESP32 camera functions and configurations (ESP32 Arduino Core component)
+#include <Preferences.h>      // For NVS (Non-Volatile Storage) to save settings persistently (ESP32 Arduino Core component)
+#include <esp_wifi.h>         // For advanced Wi-Fi control like esp_wifi_set_ps()
+#include <esp_sleep.h>        // For light sleep (esp_light_sleep_start()) and wake-up source configuration
 
-// ESP-IDF Specific Headers (Author: Espressif Systems, Version: Tied to ESP-IDF used by ESP32 Arduino Core v2.0.14)
-#include "soc/soc.h"           // For direct System-on-Chip register access (e.g., brownout disable)
+// ESP-IDF Specific Headers (from the ESP32 Arduino Core's underlying ESP-IDF)
+#include "soc/soc.h"           // For direct System-on-Chip register access
 #include "soc/rtc_cntl_reg.h"  // For Real-Time Clock control registers (used with brownout)
 #include "driver/ledc.h"       // For ESP-IDF LEDC (PWM) peripheral control, used for flash LED brightness
 
-// Commonly used Libraries (check Arduino IDE Library Manager for specific installed versions)
+// Commonly used Third-Party Libraries (Install via Arduino IDE Library Manager)
 #include <ESP32Servo.h>       // For controlling servo motors on ESP32.
-                              // (Often bundled with ESP32 core or installable. e.g., by Kevin Harrington/John K. Bennett)
+                              // (Typically by Kevin Harrington/John K. Bennett et al.)
 #include <ArduinoJson.h>      // For efficient JSON parsing and generation.
-                              // (Author: Benoit Blanchon, Version: e.g., v6.x or v7.x - check Library Manager)
+                              // (By Benoit Blanchon)
 
-// Standard C/C++ Libraries (Part of the compiler toolchain, e.g., GCC newlib)
+// Standard C/C++ Libraries (Part of the compiler toolchain)
 #include <math.h>             // For mathematical functions like pow() (used in gamma correction)
+
 
 // =================================================================================================
 // 2. CONFIGURATION & GLOBAL DEFINITIONS
 // =================================================================================================
 
 // --- Rolling average filter type definition ---
-// Used for calculating an average FPS.
+// Used for calculating an average FPS for the video stream.
 typedef struct {
-    size_t size;    // Number of samples in the filter
-    size_t index;   // Current index in the values array
-    size_t count;   // Number of values currently in the filter (up to 'size')
-    int sum;        // Sum of current values in the filter
-    int* values;    // Array to store the sample values
+    size_t size;    // Number of samples in the filter's circular buffer
+    size_t index;   // Current index in the values array (for circular buffer)
+    size_t count;   // Number of values currently stored in the filter (up to 'size')
+    int sum;        // Sum of current values in the filter (used to calculate average)
+    int* values;    // Pointer to the array storing the sample values
 } ra_filter_t;
 
 // --- Network & Server Configuration ---
-const int HTTP_PORT = 80;       // Port for the web server
-const char* WIFI_SSID = "SSID"; // <<< YOUR WIFI SSID
-const char* WIFI_PASSWORD = "password"; // <<< YOUR WIFI PASSWORD
+const int HTTP_PORT = 80;       // Port for the HTTP web server
+const int WEBSOCKET_PORT = 81;  // Port for the WebSocket server
+char nvs_wifi_ssid[64] = "YOUR_DEFAULT_SSID"; // Default SSID if NVS is empty; overwritten by NVS or AP mode config
+char nvs_wifi_password[64] = "YOUR_DEFAULT_PASSWORD"; // Default PSK if NVS is empty
+const char* AP_SSID = "ESP32-CAM-Robot-Setup"; // SSID for Access Point mode
+const char* AP_PASSWORD = "password123";      // Password for Access Point mode (consider changing for security)
+bool isInAPMode = false; // Flag to indicate if the robot is currently running in AP mode
 
 // --- Basic Authentication Credentials ---
 const char* HTTP_AUTH_USERNAME = "admin"; 
-const char* HTTP_AUTH_PASSWORD = "password"; // <<< CHANGE THIS FOR SECURITY!
-const char* AUTH_REALM = "ESP32-CAM Robot Access"; // Realm message for auth prompt
+const char* HTTP_AUTH_PASSWORD = "authpassword"; // <<< CRITICAL: CHANGE THIS FOR SECURITY!
+const char* AUTH_REALM = "ESP32-CAM Robot Access"; // Realm message displayed in auth prompt
 
 // --- OTA Configuration ---
-const char* OTA_HOSTNAME = "esp32-cam-robot"; // Hostname for OTA updates
-const char* OTA_PASSWORD = "password"; // <<< CHANGE THIS FOR SECURITY!
+const char* OTA_HOSTNAME = "esp32-cam-robot"; // Hostname for OTA updates (e.g., esp32-cam-robot.local)
+const char* OTA_PASSWORD = "otapassword"; // <<< CRITICAL: CHANGE THIS FOR SECURITY!
+bool otaIsActive = false; // Flag to prevent sleep and other operations during OTA update
 
-// --- Camera Pin Definitions (AI-Thinker ESP32-CAM specific) ---
+// --- Camera Pin Definitions (Standard for AI-Thinker ESP32-CAM) ---
 #define PWDN_GPIO_NUM     32
-#define RESET_GPIO_NUM    -1 // -1 if not used
+#define RESET_GPIO_NUM    -1 // -1 indicates not used
 #define XCLK_GPIO_NUM      0
-#define SIOD_GPIO_NUM     26 // SCCB D
-#define SIOC_GPIO_NUM     27 // SCCB C
+#define SIOD_GPIO_NUM     26 // SCCB Data (I2C Data)
+#define SIOC_GPIO_NUM     27 // SCCB Clock (I2C Clock)
 #define Y9_GPIO_NUM       35
 #define Y8_GPIO_NUM       34
 #define Y7_GPIO_NUM       39
@@ -172,80 +190,99 @@ const char* OTA_PASSWORD = "password"; // <<< CHANGE THIS FOR SECURITY!
 #define PCLK_GPIO_NUM     22
 
 // --- Camera Configuration Constants ---
-const int CAM_XCLK_FREQ = 20000000; // Camera clock frequency (20MHz)
-const pixformat_t CAM_PIXEL_FORMAT = PIXFORMAT_JPEG; // Output format for streaming
-const int CAM_FB_COUNT = 2;         // Number of frame buffers (2 recommended for PSRAM)
-// NVS: Global variables for camera settings, with firmware defaults
-framesize_t nvs_cam_framesize = FRAMESIZE_QVGA; // Default resolution, loaded from/saved to NVS
-int nvs_cam_quality = 12;                     // Default JPEG quality (10-63, lower is better), NVS stored
+const int CAM_XCLK_FREQ = 20000000; // Camera clock frequency (20MHz typical for OV2640/OV3660)
+const pixformat_t CAM_PIXEL_FORMAT = PIXFORMAT_JPEG; // Output format for streaming (JPEG is efficient)
+const int CAM_FB_COUNT = 2;         // Number of frame buffers (2 recommended with PSRAM for smoother streaming)
+framesize_t nvs_cam_framesize = FRAMESIZE_QVGA; // Default streaming resolution, loaded from/saved to NVS
+int nvs_cam_quality = 12;                     // Default streaming JPEG quality (10-63, lower is better quality), NVS stored
+int nvs_cam_brightness = 0; // Default sensor brightness (-2 to +2), NVS stored
+int nvs_cam_contrast = 0;   // Default sensor contrast (-2 to +2), NVS stored
+int nvs_cam_saturation = 0; // Default sensor saturation (-2 to +2), NVS stored
 
+// --- LED Configuration (Onboard Flash LED on GPIO4) ---
+const int LED_PIN = 4; 
+const ledc_channel_t LED_LEDC_CHANNEL_NUM = LEDC_CHANNEL_2; // ESP32 LEDC PWM channel for LED
+const ledc_timer_t LED_LEDC_TIMER_NUM = LEDC_TIMER_2;       // ESP32 LEDC PWM timer for LED
+const int LED_RESOLUTION_BITS = 8;     // PWM resolution (8-bit => 0-255 duty cycle range)
+const int LED_FREQUENCY = 5000;      // PWM frequency in Hz for LED control
+const float LED_GAMMA = 2.2;         // Gamma correction factor for more linear perceived brightness
+int g_current_led_brightness_percent = 0; // Global variable to track current UI-set LED brightness
 
-// --- LED Configuration ---
-const int LED_PIN = 4; // GPIO for the onboard flash LED
-const ledc_channel_t LED_LEDC_CHANNEL_NUM = LEDC_CHANNEL_2; // LEDC channel for PWM
-const ledc_timer_t LED_LEDC_TIMER_NUM = LEDC_TIMER_2;       // LEDC timer for PWM
-const int LED_RESOLUTION_BITS = 8;     // PWM resolution (8-bit = 0-255 duty cycle)
-const int LED_FREQUENCY = 5000;      // PWM frequency in Hz
-const float LED_GAMMA = 2.2;         // Gamma correction factor for perceived brightness
-
-// --- Servo Configuration (Default Constants) ---
-const int SERVO_LEFT_PIN = 12;  // GPIO for the left servo
-const int SERVO_RIGHT_PIN = 13; // GPIO for the right servo
+// --- Servo Configuration ---
+const int SERVO_LEFT_PIN = 12;  // GPIO for the left servo signal
+const int SERVO_RIGHT_PIN = 13; // GPIO for the right servo signal
 Servo servoLeft;
 Servo servoRight;
-const int DEFAULT_SERVO_STOP_US = 1500;   // Default stop pulse width (microseconds)
-const int SERVO_PULSE_SPAN_US = 500;      // Servo movement range: STOP +/- SPAN_US
-const int DEFAULT_SERVO_PULSE_DEADZONE_US = 50; // Default deadzone around stop pulse
-
-// NVS: Global variables to hold current servo calibration values
+const int DEFAULT_SERVO_STOP_US = 1500;   // Default servo stop pulse width (microseconds)
+const int SERVO_PULSE_SPAN_US = 500;      // Servo movement range: STOP_US +/- SPAN_US
+const int DEFAULT_SERVO_PULSE_DEADZONE_US = 50; // Default deadzone around stop pulse where servo doesn't move
+// NVS: Global variables to hold current servo calibration values, loaded from NVS
 int servo_left_stop_us    = DEFAULT_SERVO_STOP_US;
 int servo_left_pulse_deadzone_us = DEFAULT_SERVO_PULSE_DEADZONE_US;
 int servo_right_stop_us   = DEFAULT_SERVO_STOP_US;
 int servo_right_pulse_deadzone_us = DEFAULT_SERVO_PULSE_DEADZONE_US;
 
-// --- LiPo ADC Configuration (Default Constants) ---
+// --- LiPo ADC Configuration ---
 const int LIPO_ADC_PIN = 33; // ADC pin for LiPo voltage measurement
-const float DEFAULT_VOLTAGE_DIVIDER_RATIO = 3.2; // Default ratio for voltage divider
-const float DEFAULT_ADC_REF_VOLTAGE = 3.3;     // ESP32 ADC reference voltage (can vary)
+const float DEFAULT_VOLTAGE_DIVIDER_RATIO = 3.2; // Default ratio for voltage divider (R1+R2)/R2
+const float DEFAULT_ADC_REF_VOLTAGE = 3.3;     // ESP32 ADC reference voltage (can vary, calibrate if needed)
 const int ADC_RESOLUTION_BITS = 12;            // ESP32 ADC resolution (0-4095)
-// NVS: Global variable for LiPo calibration
-float lipo_calib_voltage_divider_ratio = DEFAULT_VOLTAGE_DIVIDER_RATIO;
+float lipo_calib_voltage_divider_ratio = DEFAULT_VOLTAGE_DIVIDER_RATIO; // Loaded from NVS
+const float BATTERY_LOW_WARN_VOLTAGE = 3.5f;    // Voltage threshold for low battery warning
+const float BATTERY_CRITICAL_VOLTAGE = 3.2f;  // Voltage threshold for critical battery (limit operations)
+bool isBatteryCritical = false; // Flag indicating if battery is critically low
 
-// --- NVS ---
-Preferences preferences; // Object for Non-Volatile Storage access
+// --- NVS (Non-Volatile Storage) ---
+Preferences preferences; // Object for NVS access
 
-// --- WebServer ---
-WebServer server(HTTP_PORT); // Web server object
+// --- WebServer & WebSockets ---
+WebServer server(HTTP_PORT); // HTTP Web server object
+WebSocketsServer webSocket = WebSocketsServer(WEBSOCKET_PORT); // WebSocket server object
 
 // --- Stream Task Configuration & Globals ---
-const size_t HDR_BUF_LEN = 64;       // Buffer for MJPEG stream part headers
-const size_t MAX_FRAME_SIZE = 64 * 1024; // Max expected JPEG frame size
-const int STREAM_TASK_STACK_SIZE = 8192; // Stack size for the video streaming task
+const size_t HDR_BUF_LEN = 64;       // Buffer size for MJPEG stream part headers
+const size_t MAX_FRAME_SIZE = 128 * 1024; // Max expected JPEG frame size (generous for various resolutions)
+const int STREAM_TASK_STACK_SIZE = 8192; // Stack size for the video streaming FreeRTOS task
 const UBaseType_t STREAM_TASK_PRIORITY = 2; // Priority for the streaming task
 const BaseType_t STREAM_TASK_CORE = 1;      // Core to pin the streaming task to (Core 1 for video)
-const uint32_t STREAM_DELAY_MS = 20;        // Small delay in stream loop to yield CPU
+const uint32_t STREAM_DELAY_MS = 20;        // Small delay in stream loop to yield CPU & control FPS
 
 // MJPEG stream constants
-const char* PART_BOUNDARY = "123456789000000000000987654321";
+const char* PART_BOUNDARY = "123456789000000000000987654321"; // Boundary for multipart stream
 const char* STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=123456789000000000000987654321";
 const char* STREAM_BOUNDARY = "\r\n--123456789000000000000987654321\r\n";
 const char* STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
-bool isStreaming = false;        // Flag to indicate if video stream is active
-WiFiClient streamClient;         // WiFi client object for the active stream
-uint8_t* streamBuffer = nullptr; // Buffer for non-JPEG to JPEG conversion (if ever needed)
+bool isStreaming = false;        // Flag: Is the MJPEG video stream currently active?
+WiFiClient streamClient;         // WiFi client object for the active HTTP MJPEG stream
+TaskHandle_t streamTaskHandle = NULL; // Handle for the video streaming FreeRTOS task
+uint8_t* streamBuffer = nullptr; // Buffer for non-JPEG to JPEG conversion (currently not used as CAM_PIXEL_FORMAT is JPEG)
 size_t streamBufferSize = 0;
 
-ra_filter_t ra_filter; // Global instance of the rolling average filter for FPS
+// Rolling Average Filter for FPS Calculation
+const int RA_FILTER_SAMPLE_SIZE = 20; // Number of samples for FPS rolling average
+static int ra_values_array[RA_FILTER_SAMPLE_SIZE] = {0}; // Static array for filter values
+ra_filter_t ra_filter; // Global instance of the filter struct
 
-// Robot control mode
+// Robot Control Mode
 enum ControlMode { JOYSTICK, SLIDERS };
 ControlMode currentControlMode = JOYSTICK; 
 
+// --- Light Sleep Management ---
+unsigned long lastClientActivityTimestamp = 0; // Timestamp of the last client interaction (HTTP or WebSocket)
+const unsigned long lightSleepTimeoutMs = 5 * 60 * 1000; // 5 minutes: Time of inactivity before entering light sleep
+const uint64_t lightSleepPeriodicWakeupUs = 60 * 1000 * 1000ULL; // Periodic timer wakeup from light sleep (60 seconds in microseconds)
+TaskHandle_t sleepManagementTaskHandle = NULL; // Handle for the sleep management FreeRTOS task
+bool isLightSleeping = false; // Flag: Is the ESP32 currently in light sleep?
+bool g_light_sleep_enabled = true; // NVS stored preference for enabling/disabling light sleep mode
+unsigned long lastStatusBroadcastTime = 0; // Timestamp for periodic WebSocket status pushes
+const unsigned long statusBroadcastInterval = 750; // Interval for WebSocket status pushes (milliseconds)
+
+
 // =================================================================================================
-// 3. HTML CONTENT (using Raw String Literal)
+// 3. HTML CONTENT (Stored in PROGMEM to save RAM)
 // =================================================================================================
-String htmlContent = R"RAW_HTML(
+static const char htmlContentFlash[] PROGMEM = R"RAW_HTML(
 <!DOCTYPE html>
 <html>
 <head>
@@ -257,7 +294,7 @@ String htmlContent = R"RAW_HTML(
     <meta name="format-detection" content="telephone=no">
     <meta name="msapplication-tap-highlight" content="no">
     <meta name="HandheldFriendly" content="true">
-    <title>ESP32-CAM ServoBot V3.2.0</title>
+    <title>ESP32-CAM ServoBot V4.0.0</title>
     <style>
         :root {
             --primary-color: #007bff; 
@@ -272,13 +309,17 @@ String htmlContent = R"RAW_HTML(
             --control-bg: rgba(52, 58, 64, 0.85); 
             --input-bg: #495057;
             --input-border-color: #5a6268;
-            --toast-bg: rgba(20, 20, 20, 0.9);
-            --toast-text-color: #f1f1f1;
-            --toast-error-bg: rgba(220, 53, 69, 0.9);
             --battery-bar-bg: #555;
             --battery-good: #28a745;
             --battery-medium: #ffc107;
             --battery-low: #dc3545;
+            --rssi-bar-color: var(--primary-color); 
+            --conn-status-good: var(--secondary-color);
+            --conn-status-bad: var(--danger-color);
+            --toast-info-bg: rgba(23, 162, 184, 0.9); /* Info color for toasts */
+            --toast-warn-bg: rgba(255, 193, 7, 0.9); /* Warning color for toasts */
+            --toast-error-bg: rgba(220, 53, 69, 0.9);/* Error color for toasts */
+            --toast-text-color: #f1f1f1;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body { 
@@ -323,11 +364,7 @@ String htmlContent = R"RAW_HTML(
             width: 100%; height: 100%; object-fit: contain; 
             display: none; transform-origin: center center; transform: rotate(-90deg); 
         }
-        .stream-status { /* Default for desktop */
-            position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7);
-            color: white; padding: 5px 10px; border-radius: 5px; font-size: 0.8em; z-index: 10;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-        }
+        
         .controls-overlay { position: absolute; z-index: 2; width: 100%; height: 100%; pointer-events: none; }
         .controls-top-left { 
             position: absolute; top: 15px; left: 15px; display: flex; align-items: center;
@@ -335,6 +372,44 @@ String htmlContent = R"RAW_HTML(
             padding: 10px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
             backdrop-filter: blur(5px);
         }
+        .controls-top-right-status {
+            position: absolute; top: 15px; right: 15px;
+            background: var(--control-bg); padding: 8px 12px; border-radius: 8px;
+            font-size: 0.85em; z-index: 5; color: var(--text-muted-color);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3); backdrop-filter: blur(5px);
+            display: flex; flex-direction: column; 
+            align-items: flex-end; 
+            gap: 5px; 
+            pointer-events: all;
+        }
+        .status-item { display: flex; align-items: center; gap: 8px; }
+        #lipo-voltage-display, #wifi-rssi-display { font-weight: bold; }
+        #lipo-voltage-display { color: var(--warning-color); }
+        #wifi-rssi-display { color: var(--info-color); }
+        .connection-status-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background-color: var(--conn-status-good); 
+            margin-left: 5px; 
+        }
+        .connection-status-dot.bad { background-color: var(--conn-status-bad); }
+        .bar-container {
+            width: 50px; height: 10px; background-color: var(--battery-bar-bg); 
+            border-radius: 3px; overflow: hidden; border: 1px solid #444;
+        }
+        .bar-level {
+            height: 100%; width: 0%; 
+            transition: width 0.3s ease-out, background-color 0.3s ease-out;
+        }
+        #battery-bar-level { background-color: var(--battery-good); }
+        #wifi-bar-level { background-color: var(--rssi-bar-color); }
+        .stream-status-fps { 
+            background: transparent; 
+            color: white; padding: 0; font-size: 0.8em; 
+            text-align: right; 
+        }
+        #sleep-status-indicator { font-size: 0.8em; color: var(--text-muted-color); text-align: right; }
+
+
         .controls-joystick-panel { 
             position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
             pointer-events: all; display: flex; flex-direction: column; gap: 15px;
@@ -397,23 +472,7 @@ String htmlContent = R"RAW_HTML(
         .button.btn-info:hover { background-color: #138496; }
 
         .icon-button .material-icons { font-size: 20px; }
-        .status-bar { /* Default for desktop */
-            position: absolute; bottom: 10px; left: 10px;
-            background: var(--control-bg); padding: 8px 12px; border-radius: 5px;
-            font-size: 0.85em; z-index: 5; color: var(--text-muted-color);
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            display: flex; align-items: center; gap: 8px;
-        }
-        #lipo-voltage-display { font-weight: bold; color: var(--warning-color); }
-        .battery-bar-container {
-            width: 50px; height: 10px; background-color: var(--battery-bar-bg);
-            border-radius: 3px; overflow: hidden; border: 1px solid #444;
-        }
-        .battery-bar-level {
-            height: 100%; width: 0%; background-color: var(--battery-good);
-            transition: width 0.3s ease-out, background-color 0.3s ease-out;
-        }
-
+        
         .settings-panel {
             position: fixed; top: 0; left: -320px; 
             width: 320px; height: 100%;
@@ -478,12 +537,41 @@ String htmlContent = R"RAW_HTML(
         .calibration-buttons button#btn-load-calib { background-color: var(--info-color); } 
         .calibration-input-group { margin-bottom: 15px; }
         .calibration-input-group label { display: block; font-size: 0.85em; color: var(--text-muted-color); margin-bottom: 3px; }
+        
+        .settings-toggle-switch { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 8px 0; }
+        .settings-toggle-switch label { color: var(--text-muted-color); font-size: 0.9em; }
+        .settings-toggle-switch .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .settings-toggle-switch .switch input { opacity: 0; width: 0; height: 0; }
+        .settings-toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #5a6268; transition: .4s; border-radius: 24px; }
+        .settings-toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        .settings-toggle-switch input:checked + .slider { background-color: var(--primary-color); }
+        .settings-toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+
+        #toast-container {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 2000; display: flex; flex-direction: column; align-items: center; gap: 10px;
+        }
+        .toast {
+            background-color: var(--toast-info-bg); color: var(--toast-text-color);
+            padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            opacity: 0; transition: opacity 0.5s, transform 0.5s; transform: translateY(20px);
+            font-size: 0.9em; max-width: 90vw; text-align: center;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.error { background-color: var(--toast-error-bg); }
+        .toast.warning { background-color: var(--toast-warn-bg); }
+        
+        #ap-mode-config { display: none; padding: 20px; background-color: var(--card-background-color); border-radius: 8px; margin: 20px; text-align: center; z-index: 1001; position: relative;}
+        #ap-mode-config h3 { margin-bottom: 15px; }
+        #ap-mode-config input { margin-bottom: 10px; }
+
 
         @media (max-width: 768px) { 
             .controls-joystick-panel {
-                left: 50%; top: auto; bottom: 20px;
+                left: 50%; top: auto; bottom: 45px; 
                 transform: translateX(-50%); 
                 background: rgba(33, 37, 41, 0.7); padding: 10px;
+                max-width: 180px; 
             }
             .joystick-container { width: 130px; height: 130px; background: rgba(255,255,255,0.03); }
             .slider-vertical-area { width: 60px; height: 150px; padding: 8px; }
@@ -491,18 +579,14 @@ String htmlContent = R"RAW_HTML(
             .slider-right-area { right: 10px; }
             .slider-thumb { width: 36px; height: 36px; margin-top: -18px; }
             
-            .status-bar { 
+            .controls-top-right-status { 
                 font-size: 0.8em; padding: 6px 10px; 
-                bottom: 180px; 
-                left: 10px; 
             }
-            .stream-status {
-                bottom: 180px; 
-                right: 10px;
+            .stream-status-fps { 
                 font-size: 0.75em; 
-                padding: 4px 8px;
+                padding: 0; 
             }
-            .battery-bar-container { width: 40px; }
+            .bar-container { width: 40px; } 
         }
 
         @font-face {
@@ -519,6 +603,7 @@ String htmlContent = R"RAW_HTML(
     </style>
 </head>
 <body>
+    <div id="toast-container"></div>
     <div class="container">
         <div class="video-container">
             <div class="stream-feedback" id="stream-feedback-placeholder">
@@ -530,8 +615,16 @@ String htmlContent = R"RAW_HTML(
             </div>
             <img id="stream">
         </div>
+
+        <div id="ap-mode-config">
+            <h3>Robot in Setup Mode</h3>
+            <p>Connect to Wi-Fi network:</p>
+            <input type="text" id="ap-mode-ssid" class="settings-input" placeholder="Network Name (SSID)">
+            <input type="password" id="ap-mode-password" class="settings-input" placeholder="Password">
+            <button class="button" id="ap-mode-connect-button">Connect & Restart</button>
+        </div>
         
-        <div class="controls-overlay">
+        <div class="controls-overlay" id="main-controls-overlay">
             <div class="controls-top-left">
                 <button class="button icon-button" id="stream-toggle" title="Start/Stop Stream">
                     <span class="material-icons">play_arrow</span>
@@ -539,6 +632,26 @@ String htmlContent = R"RAW_HTML(
                 <button class="button icon-button" id="settings-toggle" title="Settings">
                     <span class="material-icons">settings</span>
                 </button>
+            </div>
+
+            <div class="controls-top-right-status">
+                <div class="status-item">
+                    <span>Conn:</span> <span class="connection-status-dot" id="connection-status-dot"></span>
+                </div>
+                <div class="status-item">
+                    <span>LiPo: <span id="lipo-voltage-display">N/A</span> V</span>
+                    <div class="bar-container">
+                        <div class="bar-level" id="battery-bar-level"></div>
+                    </div>
+                </div>
+                <div class="status-item">
+                    <span>WiFi: <span id="wifi-rssi-display">N/A</span></span>
+                    <div class="bar-container">
+                        <div class="bar-level" id="wifi-bar-level"></div>
+                    </div>
+                </div>
+                <div class="stream-status-fps" id="fps-status" style="display: none;">FPS: ...</div>
+                <div id="sleep-status-indicator">Awake</div>
             </div>
             
             <div class="controls-joystick-panel" id="joystick-panel">
@@ -560,13 +673,6 @@ String htmlContent = R"RAW_HTML(
                 </div>
             </div>
             
-            <div class="status-bar">
-                <span>LiPo: <span id="lipo-voltage-display">N/A</span> V</span>
-                <div class="battery-bar-container">
-                    <div class="battery-bar-level" id="battery-bar-level"></div>
-                </div>
-            </div>
-            <div class="stream-status" id="fps-status" style="display: none;">FPS: ...</div>
         </div>
         
         <div class="overlay" id="settings-overlay"></div>
@@ -598,6 +704,21 @@ String htmlContent = R"RAW_HTML(
                     <input type="range" min="10" max="63" value="12" class="settings-slider" id="quality-slider">
                     <div class="settings-slider-value" id="quality-value">12</div>
                 </div>
+                <div class="settings-slider-container">
+                    <label for="brightness-slider" style="font-size:0.9em; color: var(--text-muted-color);">Brightness (-2 to +2)</label>
+                    <input type="range" min="-2" max="2" value="0" step="1" class="settings-slider" id="brightness-slider">
+                    <div class="settings-slider-value" id="brightness-value">0</div>
+                </div>
+                <div class="settings-slider-container">
+                    <label for="contrast-slider" style="font-size:0.9em; color: var(--text-muted-color);">Contrast (-2 to +2)</label>
+                    <input type="range" min="-2" max="2" value="0" step="1" class="settings-slider" id="contrast-slider">
+                    <div class="settings-slider-value" id="contrast-value">0</div>
+                </div>
+                <div class="settings-slider-container">
+                    <label for="saturation-slider" style="font-size:0.9em; color: var(--text-muted-color);">Saturation (-2 to +2)</label>
+                    <input type="range" min="-2" max="2" value="0" step="1" class="settings-slider" id="saturation-slider">
+                    <div class="settings-slider-value" id="saturation-value">0</div>
+                </div>
             </div>
             
             <div class="settings-section">
@@ -623,6 +744,25 @@ String htmlContent = R"RAW_HTML(
                     <span>Show FPS</span> <span class="material-icons" id="fps-toggle-icon">visibility_off</span>
                 </button>
             </div>
+
+            <div class="settings-section">
+                <h4>Power Saving</h4>
+                <div class="settings-toggle-switch">
+                    <label for="light-sleep-toggle">Enable Light Sleep Mode</label>
+                    <label class="switch">
+                        <input type="checkbox" id="light-sleep-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-section" id="wifi-config-section" style="display:none;">
+                <h4>Wi-Fi Configuration (AP Mode)</h4>
+                <input type="text" id="ap-mode-ssid" class="settings-input" placeholder="New Network Name (SSID)">
+                <input type="password" id="ap-mode-password" class="settings-input" placeholder="New Password">
+                <button class="button" id="ap-mode-connect-button">Connect & Restart Robot</button>
+            </div>
+
 
             <div class="settings-section">
                 <h4>Calibration</h4>
@@ -666,6 +806,7 @@ String htmlContent = R"RAW_HTML(
     </div>
 
     <script>
+        // DOM Elements
         const streamImg = document.getElementById('stream');
         const streamFeedbackPlaceholder = document.getElementById('stream-feedback-placeholder');
         const streamFeedbackLoading = document.getElementById('stream-feedback-loading');
@@ -684,7 +825,11 @@ String htmlContent = R"RAW_HTML(
 
         const lipoVoltageDisplay = document.getElementById('lipo-voltage-display');
         const batteryBarLevel = document.getElementById('battery-bar-level');
+        const wifiRssiDisplay = document.getElementById('wifi-rssi-display');
+        const wifiBarLevel = document.getElementById('wifi-bar-level');
+        const connectionStatusDot = document.getElementById('connection-status-dot');
         const fpsStatusDisplay = document.getElementById('fps-status');
+        const sleepStatusIndicator = document.getElementById('sleep-status-indicator');
 
         const settingsToggle = document.getElementById('settings-toggle');
         const settingsPanel = document.getElementById('settings-panel');
@@ -694,8 +839,16 @@ String htmlContent = R"RAW_HTML(
         const resolutionSelect = document.getElementById('resolution-select');
         const qualitySlider = document.getElementById('quality-slider');
         const qualityValueDisplay = document.getElementById('quality-value');
+        const brightnessSlider = document.getElementById('brightness-slider');
+        const brightnessValueDisplay = document.getElementById('brightness-value');
+        const contrastSlider = document.getElementById('contrast-slider');
+        const contrastValueDisplay = document.getElementById('contrast-value');
+        const saturationSlider = document.getElementById('saturation-slider');
+        const saturationValueDisplay = document.getElementById('saturation-value');
+
         const ledSlider = document.getElementById('led-slider');
         const ledValueDisplay = document.getElementById('led-value');
+        const lightSleepToggle = document.getElementById('light-sleep-toggle'); 
         const joystickTab = document.getElementById('joystick-tab');
         const slidersTab = document.getElementById('sliders-tab');
         const showFpsToggle = document.getElementById('show-fps-toggle');
@@ -710,109 +863,381 @@ String htmlContent = R"RAW_HTML(
         const btnSaveCalib = document.getElementById('btn-save-calib');
         const btnResetCalib = document.getElementById('btn-reset-calib');
 
+        const apModeConfigSection = document.getElementById('ap-mode-config');
+        const apModeSsidInput = document.getElementById('ap-mode-ssid');
+        const apModePasswordInput = document.getElementById('ap-mode-password');
+        const apModeConnectButton = document.getElementById('ap-mode-connect-button');
+        const mainControlsOverlay = document.getElementById('main-controls-overlay');
+
+
+        // State Variables
         let isStreamActive = false;
         let currentUiControlMode = 'joystick'; 
         let joystickIsDragging = false;
         let joystickCurrentX = 0, joystickCurrentY = 0;
         let lastControlSendTime = 0; 
         const CONTROL_THROTTLE_MS = 100; 
-
         let showFps = false;
-        let statusUpdateIntervalId = null;
-        let lipoUpdateIntervalId = null;
-        const LIPO_UPDATE_INTERVAL_MS = 750; 
+        let isServerConnected = true; 
+        let clientKeepAliveIntervalId = null;
+        let webSocket;
+        let isRobotInAPMode = false; 
+        let apModeToastShown = false; 
+        let attemptingStreamStart = false; 
+        const STREAM_START_GRACE_PERIOD = 2500; 
+        let streamStartAttemptTime = 0;
+
 
         const streamUrlBase = ''; 
 
-        function showAppStatus(message, isError = false) {
-            console.log((isError ? "ERROR: " : "STATUS: ") + message);
+        // --- Toast Notification Function ---
+        function showToast(message, type = 'info', duration = 3000) {
+            const toastContainer = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`; 
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentNode === toastContainer) { 
+                         toastContainer.removeChild(toast);
+                    }
+                }, 500); 
+            }, duration);
+        }
+        
+        // --- WebSocket Functions ---
+        function connectWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.hostname}:81`; 
+            
+            webSocket = new WebSocket(wsUrl);
+
+            webSocket.onopen = (event) => {
+                console.log('WebSocket connection opened.');
+                showToast('Connected to Robot!', 'info');
+                updateConnectionStatusIndicator(true);
+                if (webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(JSON.stringify({ command: "get_full_status" }));
+                }
+                if (isRobotInAPMode) { 
+                    handleAPModeUI(true, true); 
+                }
+            };
+
+            webSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    lastClientActivityTimestamp = Date.now(); 
+                    updateConnectionStatusIndicator(true);
+
+                    if (data.type === 'status_update') {
+                        if (data.lipo_v !== undefined) updateLipoVoltageUI(data.lipo_v);
+                        if (data.rssi !== undefined && data.wifi_connected !== undefined) updateWifiStatusUI(data.rssi, data.wifi_connected);
+                        if (data.fps !== undefined && showFps && isStreamActive) updateFpsDisplayUI(data.fps);
+                        if (data.is_sleeping !== undefined) updateSleepStatusIndicatorUI(data.is_sleeping);
+                        
+                        if (data.is_ap_mode !== undefined) {
+                            const wasInAPMode = isRobotInAPMode;
+                            isRobotInAPMode = data.is_ap_mode; 
+                            handleAPModeUI(isRobotInAPMode, webSocket.readyState === WebSocket.OPEN);
+                            if (isRobotInAPMode && !wasInAPMode && !apModeToastShown) {
+                                showToast('Robot in AP Mode. Configure Wi-Fi via Settings.', 'warning', 10000);
+                                apModeToastShown = true;
+                            } else if (!isRobotInAPMode) {
+                                apModeToastShown = false; 
+                            }
+                        }
+
+                        if (data.battery_status === 'low') showToast('Battery Low!', 'warning', 5000);
+                        if (data.battery_status === 'critical') {
+                            showToast('BATTERY CRITICAL! Operations limited.', 'error', 10000);
+                        }
+                        // Update UI based on stream_active from server
+                        if (data.stream_active !== undefined) {
+                            if (data.stream_active && !isStreamActive) {
+                                startStreamUI(); // Server confirms stream is active
+                            } else if (!data.stream_active && isStreamActive) {
+                                stopStreamUI(); // Server says stream stopped
+                            }
+                            isStreamActive = data.stream_active; // Sync local state
+                        }
+                         if (isStreamActive) attemptingStreamStart = false; 
+
+
+                    } else if (data.type === 'initial_settings') {
+                        if (data.resolution) resolutionSelect.value = data.resolution;
+                        if (data.quality) { qualitySlider.value = data.quality; qualityValueDisplay.textContent = data.quality; }
+                        if (data.brightness !== undefined) { brightnessSlider.value = data.brightness; brightnessValueDisplay.textContent = data.brightness; }
+                        if (data.contrast !== undefined) { contrastSlider.value = data.contrast; contrastValueDisplay.textContent = data.contrast; }
+                        if (data.saturation !== undefined) { saturationSlider.value = data.saturation; saturationValueDisplay.textContent = data.saturation; }
+                        if (data.led_brightness !== undefined) { ledSlider.value = data.led_brightness; ledValueDisplay.textContent = (data.led_brightness == 0 ? "Off" : data.led_brightness + "%");}
+                        if (data.sleep_enabled !== undefined) lightSleepToggle.checked = data.sleep_enabled;
+                        showToast('Initial settings loaded.', 'info');
+                    } else if (data.type === 'calibration_data') {
+                        calServoLstop.value = data.sL_stop || ''; calServoLdz.value = data.sL_dz || '';
+                        calServoRstop.value = data.sR_stop || ''; calServoRdz.value = data.sR_dz || '';
+                        calLipoRatio.value = data.lipo_ratio || '';
+                        showToast("Calibration values loaded.", 'info');
+                    } else if (data.type === 'sleep_mode_pref') {
+                         if (typeof data.enabled === 'boolean') lightSleepToggle.checked = data.enabled;
+                    } else if (data.type === 'command_ack') {
+                        showToast(data.status || `Command '${data.command}' successful.`, 'info');
+                        if (data.command === 'reset_calibration') { 
+                            loadCalibrationValuesToUI(); 
+                            sendWebSocketCommand({ command: "get_full_status" }); 
+                        }
+                    } else if (data.type === 'error') {
+                        showToast(`Error: ${data.message}`, 'error');
+                    }
+
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e, event.data);
+                }
+            };
+
+            webSocket.onclose = (event) => {
+                console.log('WebSocket connection closed.');
+                showToast('Disconnected from Robot.', 'error');
+                updateConnectionStatusIndicator(false);
+                if (!isRobotInAPMode) { 
+                    setTimeout(connectWebSocket, 3000); 
+                }
+            };
+
+            webSocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                showToast('WebSocket connection error.', 'error');
+                updateConnectionStatusIndicator(false);
+            };
         }
 
-        function toggleStream() { if (isStreamActive) stopStream(); else startStream(); }
+        function sendWebSocketCommand(command) {
+            if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                webSocket.send(JSON.stringify(command));
+                lastClientActivityTimestamp = Date.now(); 
+            } else {
+                showToast('Not connected to robot. Command not sent.', 'error');
+                console.error('WebSocket not open. State:', webSocket ? webSocket.readyState : 'null');
+            }
+        }
 
-        function startStream() {
-            isStreamActive = true;
-            streamFeedbackPlaceholder.classList.add('hidden');
-            streamFeedbackLoading.classList.remove('hidden');
-            streamImg.style.display = 'none'; 
 
-            const streamTimeout = setTimeout(() => {
-                if (isStreamActive && streamImg.style.display === 'none') { 
-                    showAppStatus('Stream timed out.', true); stopStream(); 
+        function updateConnectionStatusIndicator(connected) {
+            isServerConnected = connected;
+            if (connectionStatusDot) {
+                connectionStatusDot.classList.toggle('bad', !isServerConnected);
+            }
+        }
+        
+        function updateLipoVoltageUI(voltage) {
+            lipoVoltageDisplay.textContent = voltage.toFixed(2);
+            const minV = 3.2, maxV = 4.2; let perc = ((voltage - minV) / (maxV - minV)) * 100;
+            perc = Math.max(0, Math.min(100, perc)); batteryBarLevel.style.width = perc + '%';
+            if (voltage > 3.8) batteryBarLevel.style.backgroundColor = 'var(--battery-good)';
+            else if (voltage > 3.5) batteryBarLevel.style.backgroundColor = 'var(--battery-medium)';
+            else batteryBarLevel.style.backgroundColor = 'var(--battery-low)';
+        }
+
+        function updateWifiStatusUI(rssi, connected) {
+            if (connected) {
+                wifiRssiDisplay.textContent = rssi + ' dBm';
+                const minRssi = -90; const maxRssi = -30; 
+                let rssiPerc = ((rssi - minRssi) / (maxRssi - minRssi)) * 100;
+                rssiPerc = Math.max(0, Math.min(100, rssiPerc)); 
+                wifiBarLevel.style.width = rssiPerc + '%';
+            } else {
+                wifiRssiDisplay.textContent = 'N/A';
+                wifiBarLevel.style.width = '0%';
+            }
+        }
+        
+        function updateFpsDisplayUI(fps) {
+            if (showFps && isStreamActive) {
+                fpsStatusDisplay.textContent = `FPS: ${fps.toFixed(1)}`;
+                fpsStatusDisplay.style.display = 'block';
+            } else {
+                fpsStatusDisplay.style.display = 'none';
+            }
+        }
+
+        function updateSleepStatusIndicatorUI(isSleeping) {
+            if (sleepStatusIndicator) {
+                sleepStatusIndicator.textContent = isSleeping ? 'Sleeping...' : 'Awake';
+            }
+        }
+        
+        function handleAPModeUI(inAPMode, wsConnected = false) {
+            isRobotInAPMode = inAPMode;
+            if (inAPMode) {
+                mainControlsOverlay.style.display = 'block'; 
+                if (!wsConnected) { 
+                    apModeConfigSection.style.display = 'block';
+                    mainControlsOverlay.style.display = 'none'; 
+                } else {
+                    apModeConfigSection.style.display = 'none';
                 }
-            }, 10000); 
+                if (settingsPanel.classList.contains('active') && document.getElementById('wifi-config-section')) {
+                     document.getElementById('wifi-config-section').style.display = 'block';
+                }
+            } else {
+                apModeConfigSection.style.display = 'none';
+                mainControlsOverlay.style.display = 'block';
+                 if (document.getElementById('wifi-config-section')) {
+                    document.getElementById('wifi-config-section').style.display = 'none';
+                }
+            }
+        }
 
-            streamImg.onload = () => {
-                clearTimeout(streamTimeout);
-                streamImg.style.display = 'block';
-                streamFeedbackLoading.classList.add('hidden');
-            };
-            streamImg.src = streamUrlBase + '/stream?' + new Date().getTime(); 
-            
+
+        if (apModeConnectButton) {
+            apModeConnectButton.addEventListener('click', () => {
+                const ssid = apModeSsidInput.value;
+                const password = apModePasswordInput.value;
+                if (!ssid) {
+                    showToast('Please enter Wi-Fi SSID.', 'error');
+                    return;
+                }
+                sendWebSocketCommand({ command: 'set_wifi_credentials', ssid: ssid, password: password });
+                showToast('Credentials sent. Robot will restart. Reconnect to your normal Wi-Fi and refresh this page after a minute.', 'info', 10000);
+            });
+        }
+
+
+        function toggleStream() { 
+            if (isStreamActive) {
+                sendWebSocketCommand({ command: 'stream_control', action: 'stop' });
+                // UI update (button to play, hide image) will be handled by WebSocket status_update
+            } else {
+                attemptingStreamStart = true; 
+                streamStartAttemptTime = Date.now();
+                sendWebSocketCommand({ command: 'stream_control', action: 'start' });
+                
+                // Optimistically show loading and try to set img.src
+                streamFeedbackPlaceholder.classList.add('hidden');
+                streamFeedbackLoading.classList.remove('hidden');
+                streamImg.style.display = 'none'; 
+
+                // This timeout is a fallback if WS messages don't update the state
+                const streamTimeout = setTimeout(() => {
+                    if (attemptingStreamStart || (isStreamActive && streamImg.style.display === 'none')) { 
+                        showToast('Stream timed out.', 'error'); 
+                        stopStreamUI(); // Update UI to reflect stopped state
+                        updateConnectionStatusIndicator(false); 
+                    }
+                    attemptingStreamStart = false;
+                }, 10000); 
+
+                streamImg.onload = () => {
+                    clearTimeout(streamTimeout);
+                    attemptingStreamStart = false;
+                    // Server will confirm via WebSocket if stream is truly active by sending stream_active:true
+                    // This just handles the image successfully loading.
+                    streamImg.style.display = 'block';
+                    streamFeedbackLoading.classList.add('hidden');
+                    updateConnectionStatusIndicator(true);
+                    // Button state is best handled by WebSocket status_update
+                };
+                streamImg.onerror = () => { 
+                    clearTimeout(streamTimeout);
+                    // Only show error if not rapidly after start attempt OR if server still thinks it's streaming
+                    if (attemptingStreamStart || isStreamActive) { 
+                        if (Date.now() - streamStartAttemptTime > STREAM_START_GRACE_PERIOD) {
+                            showToast('Stream error or disconnected.', 'error'); 
+                        } else {
+                             console.log("Stream onerror fired very quickly, possibly transient during startup.");
+                        }
+                    }
+                    stopStreamUI(); // Ensure UI is reset
+                    updateConnectionStatusIndicator(false);
+                    attemptingStreamStart = false;
+                };
+                streamImg.src = streamUrlBase + '/stream?' + new Date().getTime(); 
+            }
+        }
+
+        function startStreamUI() { 
+            isStreamActive = true;
+            attemptingStreamStart = false;
+            streamFeedbackPlaceholder.classList.add('hidden');
+            streamFeedbackLoading.classList.add('hidden'); 
+            streamImg.style.display = 'block'; 
             streamToggle.innerHTML = '<span class="material-icons">stop</span>';
             streamToggle.classList.add('active');
-            showAppStatus('Attempting to start stream...');
             if (showFps) fpsStatusDisplay.style.display = 'block';
-            startStatusUpdates(); 
         }
 
-        function stopStream() {
+        function stopStreamUI() { 
             isStreamActive = false;
-            fetch(streamUrlBase + '/stopstream').catch(err => console.error("Stop stream err:", err));
+            attemptingStreamStart = false; 
             streamImg.style.display = 'none'; streamImg.src = ''; 
             streamFeedbackLoading.classList.add('hidden');
             streamFeedbackPlaceholder.classList.remove('hidden');
             streamToggle.innerHTML = '<span class="material-icons">play_arrow</span>';
             streamToggle.classList.remove('active');
-            showAppStatus('Stream stopped.');
             fpsStatusDisplay.style.display = 'none';
-            stopStatusUpdates();
         }
         
-        streamImg.onerror = () => { if(isStreamActive) { showAppStatus('Stream error or disconnected.', true); stopStream(); } };
         function toggleSettingsPanel() {
             const isActive = settingsPanel.classList.toggle('active');
             settingsOverlay.classList.toggle('active');
-            if (isActive) { loadCalibrationValuesToUI(); }
+            if (isActive) { 
+                sendWebSocketCommand({ command: 'get_calibration' }); 
+                sendWebSocketCommand({ command: 'get_sleep_mode_pref' });
+                // Also show/hide AP config section within settings panel
+                if (document.getElementById('wifi-config-section')) {
+                    document.getElementById('wifi-config-section').style.display = isRobotInAPMode ? 'block' : 'none';
+                }
+            }
         }
         settingsToggle.addEventListener('click', toggleSettingsPanel);
         settingsClose.addEventListener('click', toggleSettingsPanel);
         settingsOverlay.addEventListener('click', toggleSettingsPanel);
 
         function sendCameraSettings() {
-            const resolution = resolutionSelect.value; const quality = qualitySlider.value;
-            fetch(`/quality?resolution=${resolution}&quality=${quality}`)
-                .then(res => {
-                    if(res.ok) showAppStatus(`Camera settings sent: ${resolution}, Q${quality}. Will be saved.`);
-                    else if(res.status === 401) showAppStatus('Unauthorized to set camera settings.', true);
-                    else showAppStatus('Failed to set camera quality.', true);
-                })
-                .catch(err => showAppStatus('Error setting camera quality: ' + err, true));
+            sendWebSocketCommand({
+                command: 'set_camera_settings',
+                resolution: resolutionSelect.value,
+                quality: parseInt(qualitySlider.value),
+                brightness: parseInt(brightnessSlider.value),
+                contrast: parseInt(contrastSlider.value),
+                saturation: parseInt(saturationSlider.value)
+            });
         }
         resolutionSelect.addEventListener('change', sendCameraSettings);
         qualitySlider.addEventListener('input', () => qualityValueDisplay.textContent = qualitySlider.value);
         qualitySlider.addEventListener('change', sendCameraSettings);
+        brightnessSlider.addEventListener('input', () => brightnessValueDisplay.textContent = brightnessSlider.value);
+        brightnessSlider.addEventListener('change', sendCameraSettings);
+        contrastSlider.addEventListener('input', () => contrastValueDisplay.textContent = contrastSlider.value);
+        contrastSlider.addEventListener('change', sendCameraSettings);
+        saturationSlider.addEventListener('input', () => saturationValueDisplay.textContent = saturationSlider.value);
+        saturationSlider.addEventListener('change', sendCameraSettings);
+
 
         function sendLedBrightness() {
-            const brightness = ledSlider.value;
-            fetch(`/led?brightness=${brightness}`)
-                .then(res => {
-                    if(res.ok) showAppStatus(`LED brightness: ${brightness}%`);
-                    else if(res.status === 401) showAppStatus('Unauthorized to set LED.', true);
-                    else showAppStatus('Failed to set LED. Status: ' + res.status, true);
-                })
-                .catch(err => showAppStatus('Error setting LED: ' + err, true));
+            sendWebSocketCommand({ command: 'set_led', brightness: parseInt(ledSlider.value) });
         }
         ledSlider.addEventListener('input', () => ledValueDisplay.textContent = (ledSlider.value == 0 ? "Off" : ledSlider.value + "%"));
         ledSlider.addEventListener('change', sendLedBrightness);
+
+        function setLightSleepPreference() {
+            sendWebSocketCommand({ command: 'set_sleep_mode', enabled: lightSleepToggle.checked });
+        }
+        lightSleepToggle.addEventListener('change', setLightSleepPreference);
         
         function setUiControlMode(mode) {
             currentUiControlMode = mode;
             joystickTab.classList.toggle('active', mode === 'joystick'); slidersTab.classList.toggle('active', mode === 'sliders');
             joystickPanel.style.display = (mode === 'joystick') ? 'flex' : 'none'; joystickControl.classList.toggle('active', mode === 'joystick'); 
             slidersPanel.style.display = (mode === 'sliders') ? 'block' : 'none'; slidersPanel.classList.toggle('active', mode === 'sliders');
-            fetch('/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: currentUiControlMode, x:0, y:0, left:0, right:0 }) })
-                .catch(err => showAppStatus('Error switching control mode: ' + err, true));
+            sendWebSocketCommand({ command: 'set_control_mode', mode: currentUiControlMode, x:0, y:0, left:0, right:0 });
             resetJoystickVisuals(); resetSlidersVisuals();
         }
         joystickTab.addEventListener('click', () => setUiControlMode('joystick')); slidersTab.addEventListener('click', () => setUiControlMode('sliders'));
@@ -820,8 +1245,7 @@ String htmlContent = R"RAW_HTML(
         function sendJoystickData(x, y, force = false) {
             const now = Date.now();
             if (force || now - lastControlSendTime > CONTROL_THROTTLE_MS) {
-                fetch('/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'joystick', x: x, y: y }) })
-                    .catch(err => console.error('Joystick send error:', err));
+                sendWebSocketCommand({ command: 'control', mode: 'joystick', x: x, y: y });
                 lastControlSendTime = now;
             }
         }
@@ -849,8 +1273,7 @@ String htmlContent = R"RAW_HTML(
         function sendSlidersData(left, right, force = false) {
             const now = Date.now();
             if (force || now - lastControlSendTime > CONTROL_THROTTLE_MS) { 
-                 fetch('/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'sliders', left: left, right: right }) })
-                    .catch(err => console.error('Sliders send error:', err));
+                 sendWebSocketCommand({ command: 'control', mode: 'sliders', left: left, right: right });
                 lastControlSendTime = now;
             }
         }
@@ -889,82 +1312,60 @@ String htmlContent = R"RAW_HTML(
         function resetSlidersVisuals() { leftThumb.style.top = '50%'; rightThumb.style.top = '50%'; }
         setupSlider(leftThumb, leftSliderArea.querySelector('.slider-track'), leftSliderArea); setupSlider(rightThumb, rightSliderArea.querySelector('.slider-track'), rightSliderArea);
 
-        function updateLipoVoltage() {
-            fetch('/lipo_voltage').then(response => response.text()).then(voltageStr => {
-                const voltage = parseFloat(voltageStr); lipoVoltageDisplay.textContent = voltage.toFixed(2);
-                const minV = 3.2, maxV = 4.2; let perc = ((voltage - minV) / (maxV - minV)) * 100;
-                perc = Math.max(0, Math.min(100, perc)); batteryBarLevel.style.width = perc + '%';
-                if (voltage > 3.8) batteryBarLevel.style.backgroundColor = 'var(--battery-good)';
-                else if (voltage > 3.5) batteryBarLevel.style.backgroundColor = 'var(--battery-medium)';
-                else batteryBarLevel.style.backgroundColor = 'var(--battery-low)';
-            }).catch(error => console.error('Lipo voltage error:', error));
-        }
-        function updateStreamStatus() { 
-            if (!isStreamActive || !showFps) { fpsStatusDisplay.style.display = 'none'; return; }
-            fetch(streamUrlBase + '/status').then(response => response.json()).then(data => {
-                if (data.streaming && showFps) { fpsStatusDisplay.textContent = `FPS: ${data.fps.toFixed(1)}`; fpsStatusDisplay.style.display = 'block'; }
-                else { fpsStatusDisplay.style.display = 'none'; }
-            }).catch(error => console.error('Stream status error:', error));
-        }
-        function startStatusUpdates() {
-            stopStatusUpdates(); updateLipoVoltage(); if (showFps) updateStreamStatus();
-            lipoUpdateIntervalId = setInterval(updateLipoVoltage, LIPO_UPDATE_INTERVAL_MS); 
-            if (showFps) statusUpdateIntervalId = setInterval(updateStreamStatus, 2000);
-        }
-        function stopStatusUpdates() {
-            if (lipoUpdateIntervalId) clearInterval(lipoUpdateIntervalId); if (statusUpdateIntervalId) clearInterval(statusUpdateIntervalId);
-            lipoUpdateIntervalId = null; statusUpdateIntervalId = null;
-        }
+        function startStatusUpdates() { /* Now handled by WebSocket pushes from server */ }
+        function stopStatusUpdates() { /* Now handled by WebSocket pushes from server */ }
+        
         showFpsToggle.addEventListener('click', () => {
-            showFps = !showFps; fpsToggleIcon.textContent = showFps ? 'visibility' : 'visibility_off';
-            if (showFps && isStreamActive) { fpsStatusDisplay.style.display = 'block'; startStatusUpdates(); }
-            else { fpsStatusDisplay.style.display = 'none'; if (!showFps && statusUpdateIntervalId) { clearInterval(statusUpdateIntervalId); statusUpdateIntervalId = null; } }
+            showFps = !showFps; 
+            fpsToggleIcon.textContent = showFps ? 'visibility' : 'visibility_off';
+            if (showFps && isStreamActive) {
+                fpsStatusDisplay.style.display = 'block'; 
+            } else {
+                fpsStatusDisplay.style.display = 'none';
+            }
         });
 
         function loadCalibrationValuesToUI() { 
-            fetch('/get_calibration').then(response => {
-                if (response.status === 401) { showAppStatus("Unauthorized to load calibration.", true); return null; }
-                if (!response.ok) { throw new Error('Network response was not ok for get_calibration'); } return response.json();
-            }).then(data => {
-                if (!data) return; calServoLstop.value = data.sL_stop || ''; calServoLdz.value = data.sL_dz || '';
-                calServoRstop.value = data.sR_stop || ''; calServoRdz.value = data.sR_dz || ''; calLipoRatio.value = data.lipo_ratio || '';
-                showAppStatus("Servo/LiPo calibration values loaded into UI.");
-            }).catch(error => { console.error('Error loading calibration values:', error); showAppStatus("Error loading calibration.", true); });
+            sendWebSocketCommand({ command: 'get_calibration' });
+            sendWebSocketCommand({ command: 'get_sleep_mode_pref' });
         }
         function saveCalibrationValuesFromUI() { 
             const calData = { sL_stop: parseInt(calServoLstop.value) || 0, sL_dz: parseInt(calServoLdz.value) || 0, sR_stop: parseInt(calServoRstop.value) || 0, sR_dz: parseInt(calServoRdz.value) || 0, lipo_ratio: parseFloat(calLipoRatio.value) || 0 };
-            fetch('/set_calibration', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(calData) }).then(response => {
-                if (response.ok) { showAppStatus("Servo/LiPo calibration saved to robot successfully."); return response.text(); }
-                else if (response.status === 401) { showAppStatus("Unauthorized to save calibration.", true); }
-                else { showAppStatus("Failed to save calibration. Status: " + response.status, true); }
-            }).catch(error => { console.error('Error saving calibration:', error); showAppStatus("Error saving calibration.", true); });
+            sendWebSocketCommand({ command: 'set_calibration', data: calData });
         }
         function resetCalibrationOnRobot() { 
-            if (!confirm("Are you sure you want to reset ALL calibration values (Servos, LiPo, Camera) to firmware defaults?")) return;
-            fetch('/reset_calibration', { method: 'POST' }).then(response => {
-                 if (response.ok) {
-                    showAppStatus("All calibration reset to defaults on robot."); loadCalibrationValuesToUI(); loadInitialSettings(); return response.text();
-                } else if (response.status === 401) { showAppStatus("Unauthorized to reset calibration.", true); }
-                else { showAppStatus("Failed to reset calibration. Status: " + response.status, true); }
-            }).catch(error => { console.error('Error resetting calibration:', error); showAppStatus("Error resetting calibration.", true); });
+            if (!confirm("Are you sure you want to reset ALL calibration values (Servos, LiPo, Camera, Sleep Mode) to firmware defaults?")) return;
+            sendWebSocketCommand({ command: 'reset_calibration' });
         }
-        btnLoadCalib.addEventListener('click', loadCalibrationValuesToUI); btnSaveCalib.addEventListener('click', saveCalibrationValuesFromUI); btnResetCalib.addEventListener('click', resetCalibrationOnRobot);
+        btnLoadCalib.addEventListener('click', loadCalibrationValuesToUI); 
+        btnSaveCalib.addEventListener('click', saveCalibrationValuesFromUI); 
+        btnResetCalib.addEventListener('click', resetCalibrationOnRobot);
 
         function loadInitialSettings() { 
-            fetch('/camera/settings').then(response => {
-                 if (response.status === 401) { showAppStatus("Unauthorized to load camera settings.", true); return null; }
-                 if (!response.ok) { throw new Error('Network response was not ok for camera_settings'); } return response.json();
-            }).then(data => {
-                if (!data) return; if (data.resolution) resolutionSelect.value = data.resolution;
-                if (data.quality) { qualitySlider.value = data.quality; qualityValueDisplay.textContent = data.quality; }
-                showAppStatus("Initial camera settings loaded from robot.");
-            }).catch(error => { console.error('Failed to load initial camera settings:', error); showAppStatus("Error loading initial camera settings.", true); });
-            ledValueDisplay.textContent = (ledSlider.value == 0 ? "Off" : ledSlider.value + "%"); setUiControlMode('joystick'); 
-            updateLipoVoltage(); streamFeedbackPlaceholder.classList.remove('hidden'); streamFeedbackLoading.classList.add('hidden');
+            ledValueDisplay.textContent = (ledSlider.value == 0 ? "Off" : ledSlider.value + "%"); 
+            setUiControlMode('joystick'); 
+            updateConnectionStatusIndicator(true); 
+            streamFeedbackPlaceholder.classList.remove('hidden'); 
+            streamFeedbackLoading.classList.add('hidden');
+
+            if (clientKeepAliveIntervalId) clearInterval(clientKeepAliveIntervalId);
+            clientKeepAliveIntervalId = setInterval(() => {
+                if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(JSON.stringify({ command: 'ping' }));
+                } else if (webSocket && webSocket.readyState !== WebSocket.CONNECTING && !isRobotInAPMode) {
+                    console.log("Keep-alive: WebSocket not open, attempting reconnect.");
+                    connectWebSocket(); 
+                }
+            }, 5000); 
         }
         document.body.addEventListener('touchstart', function(e) { if (e.target === document.body || e.target === document.querySelector('.container') || e.target === document.querySelector('.video-container')) e.preventDefault(); }, { passive: false });
         document.body.addEventListener('touchmove', function(e) { if (e.target === document.body || e.target === document.querySelector('.container') || e.target === document.querySelector('.video-container')) e.preventDefault(); }, { passive: false });
-        streamToggle.addEventListener('click', toggleStream); document.addEventListener('DOMContentLoaded', loadInitialSettings);
+        
+        streamToggle.addEventListener('click', toggleStream); 
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket(); 
+            loadInitialSettings(); 
+        });
     </script>
 </body>
 </html>
@@ -975,46 +1376,59 @@ String htmlContent = R"RAW_HTML(
 // =================================================================================================
 bool checkAuthentication(); 
 void initCamera(); 
-void initWiFi(); 
+void initWiFi(bool forceAP = false); 
+void setupAPMode();
 void setupLed(); 
+void applyLedBrightness(int percent); 
 float gammaCorrection(float brightnessPercent, float gamma); 
-void handleLedControl(); 
+void handleLedControl(uint8_t clientId, JsonDocument& doc); 
 void initServos(); 
 void TaskHttpServer(void *pvParameters); 
 void TaskOtaHandler(void *pvParameters); 
+void sleepManagementTask(void *pvParameters); 
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length); 
+void broadcastStatusUpdate(); 
 void setupWebServerRoutes(); 
 void setupOTA(); 
 void loadCalibrationFromNVS(); 
-void saveCalibrationToNVS(); // For Servo & LiPo
-void saveCameraSettingsToNVS(); // Specifically for camera settings
-void handleGetCalibration(); 
-void handleSetCalibration(); 
-void handleResetCalibration(); // Will now also reset camera NVS settings
+void saveCalibrationToNVS(); 
+void saveCameraSettingsToNVS(); 
+void saveSleepModePrefToNVS(); 
+void saveWiFiCredentialsToNVS(const char* ssid, const char* password);
+void handleGetCalibration(uint8_t clientId); 
+void handleSetCalibration(uint8_t clientId, JsonDocument& doc); 
+void handleResetCalibration(uint8_t clientId); 
+// void handleWifiStatus(); // Replaced by WebSocket
+void handleGetSleepModePref(uint8_t clientId); 
+void handleSetSleepModePref(uint8_t clientId, JsonDocument& doc); 
+void handleSetWiFiCredentials(uint8_t clientId, JsonDocument& doc);
 int getCalibratedServoPulse(float controlValue, int stop_us, int pulse_deadzone_us, float input_deadzone_threshold = 0.05f); 
 void processJoystickControlServos(float x, float y); 
 void processSlidersControlServos(float leftSlider, float rightSlider); 
 float readLipoVoltage(); 
-void handleLipoVoltage(); 
+// void handleLipoVoltage(); // Replaced by WebSocket
 ra_filter_t* ra_filter_init(ra_filter_t* filter, size_t sample_size); 
 int ra_filter_run(ra_filter_t* filter, int value); 
-void handleStartStream(); 
-void handleStopStream(); 
-void handleStreamStatus(); 
+void handleStartStreamForHttpRequest(); // For HTTP GET /stream
+// void handleStopStream(uint8_t clientId); // Now only via WebSocket
+// void handleStreamStatus(); // Replaced by WebSocket
 void streamTask(void* parameter); 
 bool sendMJPEGFrame(const uint8_t* buf, size_t len); 
-const char* framesizeToString(framesize_t fs); // Helper to convert framesize enum to string
-framesize_t stringToFramesize(const String& fsStr); // Helper to convert string to framesize enum
+const char* framesizeToString(framesize_t fs); 
+framesize_t stringToFramesize(const String& fsStr); 
+void handleCameraSettings(uint8_t clientId, JsonDocument& doc); 
 
 // =================================================================================================
 // 5. SETUP FUNCTION
 // =================================================================================================
 void setup() {
-    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector (use with stable power supply)
+    // WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
 
-    Serial.begin(115200);
-    Serial.println("\n\nESP32-CAM Servo Robot V3.2.0 (Polished Release) Initializing..."); 
+    Serial.begin(115200); 
+    Serial.println("\n\nESP32-CAM Servo Robot V3.7.3 (Stream/AP Fix & Battery Critical) Initializing..."); 
 
-    loadCalibrationFromNVS(); // Loads Servo, LiPo, AND Camera settings from NVS
+    lastClientActivityTimestamp = millis(); 
+    loadCalibrationFromNVS(); 
 
     if(!psramFound()){
         Serial.println("PSRAM not found! Camera performance will be limited.");
@@ -1022,164 +1436,220 @@ void setup() {
         Serial.println("PSRAM found.");
     }
 
-    initCamera(); // Initializes camera using NVS loaded settings (or defaults if NVS is empty)
+    initCamera(); 
     initWiFi(); 
 
     setupLed(); 
     initServos();
 
-    ra_filter_init(&ra_filter, 20); // Initialize rolling average filter for FPS (20 samples)
+    ra_filter.values = ra_values_array; 
+    ra_filter_init(&ra_filter, RA_FILTER_SAMPLE_SIZE); 
 
     setupWebServerRoutes(); 
+    webSocket.begin(); 
+    webSocket.onEvent(webSocketEvent); 
+
     setupOTA(); 
 
-    // Start HTTP server task on Core 0
     xTaskCreatePinnedToCore(TaskHttpServer, "HttpServerTask", 8192, NULL, 1, NULL, 0);
-    // Start OTA handler task on Core 0
     xTaskCreatePinnedToCore(TaskOtaHandler, "OTATask", 4096, NULL, 1, NULL, 0);  
+    xTaskCreatePinnedToCore(sleepManagementTask, "SleepMgmtTask", 4096, NULL, 0, &sleepManagementTaskHandle, 0); 
 
     Serial.println("Setup complete. Main tasks started.");
-    Serial.printf("Web server on port %d. Stream on /stream.\n", HTTP_PORT);
-    Serial.println("Calibrated settings (Servo, LiPo, Camera) loaded from NVS or defaults applied.");
-    Serial.printf("HTTP Auth User: %s (Password: %s) <<< CHANGE THESE!\n", HTTP_AUTH_USERNAME, HTTP_AUTH_PASSWORD);
-    Serial.printf("OTA Hostname: %s (Password: %s) <<< CHANGE THIS!\n", OTA_HOSTNAME, OTA_PASSWORD);
+    if (!isInAPMode) {
+        Serial.printf("HTTP server on port %d. WebSocket on port %d. Stream on /stream.\n", HTTP_PORT, WEBSOCKET_PORT);
+    }
+    Serial.println("Calibrated settings loaded from NVS or defaults applied.");
+    Serial.printf("HTTP Auth User: %s (Password: ***) <<< CHANGE THESE!\n", HTTP_AUTH_USERNAME); 
+    Serial.printf("OTA Hostname: %s (Password: ***) <<< CHANGE THIS!\n", OTA_HOSTNAME);       
 }
 
 // =================================================================================================
-// 6. LOOP FUNCTION (Main loop is minimal as tasks handle most operations)
+// 6. LOOP FUNCTION 
 // =================================================================================================
 void loop() {
-    vTaskDelay(pdMS_TO_TICKS(1000)); // Keep main loop alive, but tasks do the work
+    vTaskDelete(NULL); 
 }
 
 // =================================================================================================
 // 7. FUNCTION IMPLEMENTATIONS
 // =================================================================================================
 
+// --- Light Sleep Management Task ---
+void sleepManagementTask(void *pvParameters) {
+    (void)pvParameters;
+    const TickType_t checkInterval = pdMS_TO_TICKS(15000); 
+
+    for (;;) {
+        vTaskDelay(checkInterval);
+
+        if (g_light_sleep_enabled && !isLightSleeping && !isStreaming && !otaIsActive && !isInAPMode &&
+            (millis() - lastClientActivityTimestamp > lightSleepTimeoutMs)) {
+            
+            processJoystickControlServos(0,0); 
+            applyLedBrightness(0); 
+            
+            esp_wifi_set_ps(WIFI_PS_MIN_MODEM); 
+            esp_sleep_enable_wifi_wakeup();
+            esp_sleep_enable_timer_wakeup(lightSleepPeriodicWakeupUs); 
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO); 
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_AUTO);
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_AUTO);
+
+            isLightSleeping = true;
+            
+            esp_light_sleep_start(); 
+
+            // ---- Execution resumes here after wake-up ----
+            isLightSleeping = false;
+            esp_wifi_set_ps(WIFI_PS_NONE); 
+            
+            esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+            bool clientActivityJustOccurred = (millis() - lastClientActivityTimestamp < 2000); 
+
+            if (WiFi.status() != WL_CONNECTED) {
+                WiFi.reconnect();
+                vTaskDelay(pdMS_TO_TICKS(1000)); 
+            }
+            
+            applyLedBrightness(20); 
+            vTaskDelay(pdMS_TO_TICKS(500)); 
+            applyLedBrightness(g_current_led_brightness_percent); 
+
+            if (wakeup_reason == ESP_SLEEP_WAKEUP_TIMER && !clientActivityJustOccurred) {
+                lastClientActivityTimestamp = millis() - lightSleepTimeoutMs + (30 * 1000); 
+            } else { 
+                lastClientActivityTimestamp = millis(); 
+            }
+        } else if (isLightSleeping) {
+            isLightSleeping = false; 
+            esp_wifi_set_ps(WIFI_PS_NONE);
+        }
+    }
+}
+
+
 // --- Authentication Helper ---
-// Checks if the client provided correct HTTP Basic Authentication credentials.
 bool checkAuthentication() {
     if (!server.authenticate(HTTP_AUTH_USERNAME, HTTP_AUTH_PASSWORD)) {
         server.requestAuthentication(BASIC_AUTH, AUTH_REALM, "Authentication failed or required. Please login.");
         return false; 
     }
+    // lastClientActivityTimestamp = millis(); // Updated by individual handlers
     return true; 
 }
 
 // --- NVS Calibration Functions ---
-// Loads all calibration data (Servo, LiPo, Camera) from NVS.
-// If NVS is empty or a key is missing, it uses the firmware defaults.
 void loadCalibrationFromNVS() {
-    preferences.begin("robotCalib", true); // Open NVS in read-only mode first
-
-    // Servo Calibration
+    preferences.begin("robotCalib", true); 
     servo_left_stop_us    = preferences.getInt("sL_stop", DEFAULT_SERVO_STOP_US);
     servo_left_pulse_deadzone_us = preferences.getInt("sL_dz", DEFAULT_SERVO_PULSE_DEADZONE_US);
     servo_right_stop_us   = preferences.getInt("sR_stop", DEFAULT_SERVO_STOP_US);
     servo_right_pulse_deadzone_us = preferences.getInt("sR_dz", DEFAULT_SERVO_PULSE_DEADZONE_US);
-    
-    // LiPo Calibration
     lipo_calib_voltage_divider_ratio = preferences.getFloat("lipo_ratio", DEFAULT_VOLTAGE_DIVIDER_RATIO);
-
-    // Camera Settings Calibration
-    nvs_cam_framesize = (framesize_t)preferences.getInt("cam_res_idx", (int)FRAMESIZE_QVGA); 
-    nvs_cam_quality = preferences.getInt("cam_qual", 12); // Default quality if not found
-    
+    nvs_cam_framesize = static_cast<framesize_t>(preferences.getInt("cam_res_idx", static_cast<int>(FRAMESIZE_QVGA))); 
+    nvs_cam_quality = preferences.getInt("cam_qual", 12); 
+    nvs_cam_brightness = preferences.getInt("cam_brght", 0);
+    nvs_cam_contrast   = preferences.getInt("cam_contr", 0);
+    nvs_cam_saturation = preferences.getInt("cam_sat", 0);
+    g_light_sleep_enabled = preferences.getBool("sleep_en", true); 
+    preferences.getString("sta_ssid", nvs_wifi_ssid, sizeof(nvs_wifi_ssid));
+    preferences.getString("sta_psk", nvs_wifi_password, sizeof(nvs_wifi_password));
     preferences.end();
-    Serial.println("All calibration data (Servo, LiPo, Camera) loaded from NVS or defaults applied.");
 }
 
-// Saves ONLY Servo and LiPo calibration data to NVS.
-void saveCalibrationToNVS() {
-    preferences.begin("robotCalib", false); // Open NVS in read-write mode
-    preferences.putInt("sL_stop", servo_left_stop_us);
+void saveCalibrationToNVS() { 
+    preferences.begin("robotCalib", false); 
+    preferences.putInt("sL_stop", servo_left_stop_us); 
     preferences.putInt("sL_dz", servo_left_pulse_deadzone_us);
-    preferences.putInt("sR_stop", servo_right_stop_us);
+    preferences.putInt("sR_stop", servo_right_stop_us); 
     preferences.putInt("sR_dz", servo_right_pulse_deadzone_us);
     preferences.putFloat("lipo_ratio", lipo_calib_voltage_divider_ratio);
-    preferences.end();
-    Serial.println("Servo & LiPo calibration data saved to NVS.");
+    preferences.end(); 
 }
 
-// Saves ONLY Camera settings (resolution index and quality) to NVS.
-void saveCameraSettingsToNVS() {
-    preferences.begin("robotCalib", false); // Open NVS in read-write mode
-    preferences.putInt("cam_res_idx", (int)nvs_cam_framesize); // Store enum as int
+void saveCameraSettingsToNVS() { 
+    preferences.begin("robotCalib", false); 
+    preferences.putInt("cam_res_idx", static_cast<int>(nvs_cam_framesize)); 
     preferences.putInt("cam_qual", nvs_cam_quality);
+    preferences.putInt("cam_brght", nvs_cam_brightness);
+    preferences.putInt("cam_contr", nvs_cam_contrast);
+    preferences.putInt("cam_sat", nvs_cam_saturation);
+    preferences.end(); 
+}
+
+void saveSleepModePrefToNVS(){
+    preferences.begin("robotCalib", false);
+    preferences.putBool("sleep_en", g_light_sleep_enabled);
     preferences.end();
-    Serial.println("Camera settings saved to NVS.");
-    Serial.printf(" Saved Camera: Resolution Index=%d (%s), Quality=%d\n", (int)nvs_cam_framesize, framesizeToString(nvs_cam_framesize), nvs_cam_quality);
 }
 
-// HTTP Handler: Gets current Servo & LiPo calibration values for the UI.
-void handleGetCalibration() {
-    if (!checkAuthentication()) return;
-    StaticJsonDocument<256> doc; 
-    doc["sL_stop"] = servo_left_stop_us;
-    doc["sL_dz"] = servo_left_pulse_deadzone_us;
-    doc["sR_stop"] = servo_right_stop_us;
-    doc["sR_dz"] = servo_right_pulse_deadzone_us;
+void saveWiFiCredentialsToNVS(const char* ssid, const char* password) {
+    preferences.begin("robotCalib", false);
+    preferences.putString("sta_ssid", ssid);
+    preferences.putString("sta_psk", password);
+    preferences.end();
+    strlcpy(nvs_wifi_ssid, ssid, sizeof(nvs_wifi_ssid));
+    strlcpy(nvs_wifi_password, password, sizeof(nvs_wifi_password));
+}
+
+
+void handleGetCalibration(uint8_t clientId) { 
+    StaticJsonDocument<300> doc; 
+    doc["type"] = "calibration_data";
+    doc["sL_stop"] = servo_left_stop_us; doc["sL_dz"] = servo_left_pulse_deadzone_us;
+    doc["sR_stop"] = servo_right_stop_us; doc["sR_dz"] = servo_right_pulse_deadzone_us;
     doc["lipo_ratio"] = lipo_calib_voltage_divider_ratio;
-    String response;
-    serializeJson(doc, response);
-    server.send(200, "application/json", response);
+    String response; serializeJson(doc, response); 
+    webSocket.sendTXT(clientId, response);
 }
 
-// HTTP Handler: Sets Servo & LiPo calibration values from UI and saves to NVS.
-void handleSetCalibration() {
-    if (!checkAuthentication()) return;
-    if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "Bad Request: No JSON payload"); return;
-    }
-    StaticJsonDocument<256> doc; 
-    DeserializationError error = deserializeJson(doc, server.arg("plain"));
-    if (error) {
-        server.send(400, "text/plain", "Bad Request: Invalid JSON"); return;
-    }
-
-    servo_left_stop_us    = doc["sL_stop"] | DEFAULT_SERVO_STOP_US;
-    servo_left_pulse_deadzone_us = doc["sL_dz"] | DEFAULT_SERVO_PULSE_DEADZONE_US;
-    servo_right_stop_us   = doc["sR_stop"] | DEFAULT_SERVO_STOP_US;
-    servo_right_pulse_deadzone_us = doc["sR_dz"] | DEFAULT_SERVO_PULSE_DEADZONE_US;
-    lipo_calib_voltage_divider_ratio = doc["lipo_ratio"] | DEFAULT_VOLTAGE_DIVIDER_RATIO;
-
-    saveCalibrationToNVS(); // Saves only Servo & LiPo
-    server.send(200, "text/plain", "Servo/LiPo Calibration Saved");
-    Serial.println("Servo/LiPo calibration updated and saved from UI.");
-}
-
-// HTTP Handler: Resets ALL calibration (Servo, LiPo, Camera) to firmware defaults and saves to NVS.
-void handleResetCalibration() {
-    if (!checkAuthentication()) return;
+void handleSetCalibration(uint8_t clientId, JsonDocument& doc) { 
+    JsonObject data = doc["data"];
+    servo_left_stop_us    = data["sL_stop"] | DEFAULT_SERVO_STOP_US; 
+    servo_left_pulse_deadzone_us = data["sL_dz"] | DEFAULT_SERVO_PULSE_DEADZONE_US;
+    servo_right_stop_us   = data["sR_stop"] | DEFAULT_SERVO_STOP_US; 
+    servo_right_pulse_deadzone_us = data["sR_dz"] | DEFAULT_SERVO_PULSE_DEADZONE_US;
+    lipo_calib_voltage_divider_ratio = data["lipo_ratio"] | DEFAULT_VOLTAGE_DIVIDER_RATIO;
+    saveCalibrationToNVS(); 
     
-    // Reset Servo values to firmware defaults
-    servo_left_stop_us    = DEFAULT_SERVO_STOP_US;
-    servo_left_pulse_deadzone_us = DEFAULT_SERVO_PULSE_DEADZONE_US;
-    servo_right_stop_us   = DEFAULT_SERVO_STOP_US;
-    servo_right_pulse_deadzone_us = DEFAULT_SERVO_PULSE_DEADZONE_US;
-    // Reset LiPo value to firmware default
-    lipo_calib_voltage_divider_ratio = DEFAULT_VOLTAGE_DIVIDER_RATIO;
-    saveCalibrationToNVS(); // Save reset Servo & LiPo values
+    StaticJsonDocument<100> ackDoc;
+    ackDoc["type"] = "command_ack";
+    ackDoc["command"] = "set_calibration";
+    ackDoc["status"] = "Servo/LiPo Calibration Saved";
+    String response; serializeJson(ackDoc, response);
+    webSocket.sendTXT(clientId, response);
+}
 
-    // Reset Camera NVS values to firmware defaults
-    nvs_cam_framesize = FRAMESIZE_QVGA; 
-    nvs_cam_quality = 12;               
-    saveCameraSettingsToNVS();          // Save reset camera values
+void handleResetCalibration(uint8_t clientId) { 
+    servo_left_stop_us    = DEFAULT_SERVO_STOP_US; servo_left_pulse_deadzone_us = DEFAULT_SERVO_PULSE_DEADZONE_US;
+    servo_right_stop_us   = DEFAULT_SERVO_STOP_US; servo_right_pulse_deadzone_us = DEFAULT_SERVO_PULSE_DEADZONE_US;
+    lipo_calib_voltage_divider_ratio = DEFAULT_VOLTAGE_DIVIDER_RATIO; 
+    saveCalibrationToNVS(); 
+    
+    nvs_cam_framesize = FRAMESIZE_QVGA; nvs_cam_quality = 12; 
+    nvs_cam_brightness = 0; nvs_cam_contrast = 0; nvs_cam_saturation = 0;
+    saveCameraSettingsToNVS();          
+    
+    g_light_sleep_enabled = true; 
+    saveSleepModePrefToNVS();
 
-    // Re-initialize camera with these defaults immediately
-    sensor_t * s = esp_camera_sensor_get();
-    if (s) {
-        s->set_framesize(s, nvs_cam_framesize);
+    sensor_t * s = esp_camera_sensor_get(); 
+    if (s) { 
+        s->set_framesize(s, nvs_cam_framesize); 
         s->set_quality(s, nvs_cam_quality);
-        Serial.println("Camera re-initialized with default settings after reset.");
-    } else {
-        Serial.println("Could not get camera sensor to apply reset defaults.");
+        s->set_brightness(s, nvs_cam_brightness);
+        s->set_contrast(s, nvs_cam_contrast);
+        s->set_saturation(s, nvs_cam_saturation);
     }
     
-    server.send(200, "text/plain", "All Calibration (Servo, LiPo, Camera) Reset to Defaults");
-    Serial.println("All calibration reset to firmware defaults and saved.");
+    StaticJsonDocument<100> ackDoc;
+    ackDoc["type"] = "command_ack";
+    ackDoc["command"] = "reset_calibration";
+    ackDoc["status"] = "All Calibration Reset to Defaults";
+    String response; serializeJson(ackDoc, response);
+    webSocket.sendTXT(clientId, response);
 }
-
 
 // --- OTA Setup and Task ---
 void setupOTA() {
@@ -1187,18 +1657,26 @@ void setupOTA() {
     ArduinoOTA.setPassword(OTA_PASSWORD); 
     ArduinoOTA
         .onStart([]() { 
+            otaIsActive = true; 
             String type; if (ArduinoOTA.getCommand() == U_FLASH) type = "sketch"; else type = "filesystem"; 
-            Serial.println("OTA: Start updating " + type);
-            if (isStreaming) { // Stop stream if active during OTA
+            Serial.println("OTA: Start updating " + type); 
+            if (isStreaming) { 
                 isStreaming = false; 
-                if(streamClient && streamClient.connected()) streamClient.stop();
-                vTaskDelay(pdMS_TO_TICKS(200)); // Give stream task time to stop
+                if (streamTaskHandle != NULL) {
+                    if (streamClient && streamClient.connected()) streamClient.stop();
+                    vTaskDelay(pdMS_TO_TICKS(200)); 
+                    if (eTaskGetState(streamTaskHandle) != eDeleted) {
+                        vTaskDelete(streamTaskHandle);
+                    }
+                    streamTaskHandle = NULL;
+                }
             }
         })
-        .onEnd([]() { Serial.println("\nOTA: End. Rebooting..."); })
-        .onProgress([](unsigned int progress, unsigned int total) { Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100))); })
+        .onEnd([]() { otaIsActive = false; Serial.println("\nOTA: End. Rebooting..."); }) 
+        .onProgress([](unsigned int progress, unsigned int total) { Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100))); }) 
         .onError([](ota_error_t error) { 
-            Serial.printf("OTA Error[%u]: ", error);
+            otaIsActive = false; 
+            Serial.printf("OTA Error[%u]: ", error); 
             if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
             else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
             else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
@@ -1206,16 +1684,15 @@ void setupOTA() {
             else if (error == OTA_END_ERROR) Serial.println("End Failed");
         });
     ArduinoOTA.begin(); 
-    Serial.println("OTA Service Ready.");
+    Serial.println("OTA Service Ready."); 
 }
-// Task to handle OTA updates. Runs on Core 0.
+
 void TaskOtaHandler(void *pvParameters) { 
     (void)pvParameters; 
     for (;;) { ArduinoOTA.handle(); vTaskDelay(pdMS_TO_TICKS(10)); } 
 }
 
 // --- Camera Initialization ---
-// Initializes the camera using settings loaded from NVS (or firmware defaults).
 void initCamera() { 
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0; config.ledc_timer = LEDC_TIMER_0;
@@ -1227,24 +1704,23 @@ void initCamera() {
     config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = CAM_XCLK_FREQ; 
     config.pixel_format = CAM_PIXEL_FORMAT; 
-    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // Grab frames when buffer is empty
-    config.fb_location = CAMERA_FB_IN_PSRAM;   // Store frame buffer in PSRAM
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; 
+    config.fb_location = CAMERA_FB_IN_PSRAM;   
 
-    // Use NVS loaded settings for camera initialization
     config.frame_size = nvs_cam_framesize; 
     config.jpeg_quality = nvs_cam_quality;        
     
     if (psramFound()) {
         config.fb_count = CAM_FB_COUNT;   
-    } else { // If no PSRAM, override to smaller settings to ensure functionality
+    } else { 
         Serial.println("Warning: PSRAM not found. Overriding camera settings to QQVGA.");
         config.frame_size = FRAMESIZE_QQVGA;
-        config.jpeg_quality = 15; // Higher number is lower quality for QQVGA
+        config.jpeg_quality = 15; 
         config.fb_count = 1;
-        // Update NVS vars to reflect this override if PSRAM not found, so UI is consistent on next boot
         nvs_cam_framesize = FRAMESIZE_QQVGA;
         nvs_cam_quality = 15;
-        saveCameraSettingsToNVS(); // Save the override
+        nvs_cam_brightness = 0; nvs_cam_contrast = 0; nvs_cam_saturation = 0;
+        saveCameraSettingsToNVS(); 
     }
 
     esp_err_t err = esp_camera_init(&config); 
@@ -1253,113 +1729,157 @@ void initCamera() {
         ESP.restart(); return; 
     }
     Serial.println("Camera initialized successfully.");
-    Serial.printf(" Initial Active Camera: Resolution=%s, Quality=%d\n", framesizeToString(nvs_cam_framesize), nvs_cam_quality);
 
     sensor_t * s = esp_camera_sensor_get();
-    if (s->id.PID == OV3660_PID) { // Apply some sensor-specific settings if OV3660
-        s->set_vflip(s, 1);       // Vertical flip
-        s->set_brightness(s, 1);  // Adjust brightness
-        s->set_saturation(s, -2); // Adjust saturation
+    if (s) {
+        s->set_brightness(s, nvs_cam_brightness);
+        s->set_contrast(s, nvs_cam_contrast);
+        s->set_saturation(s, nvs_cam_saturation);
+        if (s->id.PID == OV3660_PID) { 
+            s->set_vflip(s, 1);       
+        }
     }
 }
 
+
 // --- WiFi Initialization ---
-void initWiFi() { 
+void initWiFi(bool forceAP) { 
     WiFi.mode(WIFI_STA); 
-    WiFi.setHostname(OTA_HOSTNAME); 
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("Connecting to WiFi "); Serial.print(WIFI_SSID);
-    unsigned long startTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 15000) { // 15-second timeout
-        Serial.print("."); delay(500); 
+    if (forceAP) {
+        setupAPMode();
+        return;
     }
-    if (WiFi.status() == WL_CONNECTED) { 
-        Serial.println("\nConnected to WiFi.");
-        Serial.print("IP address: "); Serial.println(WiFi.localIP()); 
-    } else { 
-        Serial.println("\nFailed to connect to WiFi. Check credentials or network."); 
+
+    if (strlen(nvs_wifi_ssid) > 0 && strcmp(nvs_wifi_ssid, "YOUR_DEFAULT_SSID") != 0 ) { 
+        WiFi.setHostname(OTA_HOSTNAME); 
+        WiFi.begin(nvs_wifi_ssid, nvs_wifi_password);
+        Serial.print("Connecting to STA: "); Serial.print(nvs_wifi_ssid);
+        unsigned long startTime = millis();
+        int retries = 0;
+        const int maxRetries = 20; 
+
+        while (WiFi.status() != WL_CONNECTED && retries < maxRetries) { 
+            Serial.print("."); 
+            delay(500); 
+            retries++;
+        }
+        if (WiFi.status() == WL_CONNECTED) { 
+            Serial.println("\nConnected to WiFi.");
+            Serial.print("IP address: "); Serial.println(WiFi.localIP()); 
+            lastClientActivityTimestamp = millis(); 
+            isInAPMode = false;
+            return; 
+        } else { 
+            Serial.println("\nFailed to connect to STA. Starting AP mode.");
+        }
+    } else {
+        Serial.println("No valid STA credentials stored or using defaults. Starting AP mode.");
     }
+    setupAPMode(); 
 }
+
+void setupAPMode() {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("AP Mode Enabled. SSID: "); Serial.print(AP_SSID);
+    // Serial.print(" | Password: "); Serial.println(AP_PASSWORD); // Don't log AP password
+    Serial.print("AP IP address: "); Serial.println(IP);
+    isInAPMode = true;
+    lastClientActivityTimestamp = millis(); 
+}
+
 
 // --- LED Control Functions ---
 void setupLed() { 
     ledc_timer_config_t ledc_timer = { .speed_mode = LEDC_LOW_SPEED_MODE, .duty_resolution  = (ledc_timer_bit_t)LED_RESOLUTION_BITS, .timer_num = LED_LEDC_TIMER_NUM, .freq_hz = LED_FREQUENCY, .clk_cfg = LEDC_AUTO_CLK }; 
-    if (ledc_timer_config(&ledc_timer) != ESP_OK) { Serial.println("LEDC timer config failed!"); return; }
+    if (ledc_timer_config(&ledc_timer) != ESP_OK) { return; }
     ledc_channel_config_t ledc_channel_conf = { .gpio_num   = LED_PIN, .speed_mode = LEDC_LOW_SPEED_MODE, .channel = LED_LEDC_CHANNEL_NUM, .intr_type  = LEDC_INTR_DISABLE, .timer_sel  = LED_LEDC_TIMER_NUM, .duty = 0, .hpoint = 0 }; 
-    if (ledc_channel_config(&ledc_channel_conf) != ESP_OK) { Serial.println("LEDC channel config failed!"); return; }
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_LEDC_CHANNEL_NUM, 0); 
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LED_LEDC_CHANNEL_NUM);
-    Serial.println("LED control initialized.");
+    if (ledc_channel_config(&ledc_channel_conf) != ESP_OK) { return; }
+    applyLedBrightness(0); 
 }
-// Applies gamma correction to a brightness percentage.
+
 float gammaCorrection(float brightnessPercent, float gamma) { 
-    float normalizedBrightness = constrain(brightnessPercent / 100.0, 0.0, 1.0);
+    float normalizedBrightness = constrain(brightnessPercent / 100.0f, 0.0f, 1.0f);
     return pow(normalizedBrightness, gamma);
 }
-// HTTP Handler: Controls LED brightness.
-void handleLedControl() { 
-    if (server.hasArg("brightness")) { 
-        int brightnessPercent = constrain(server.arg("brightness").toInt(), 0, 100); 
-        float correctedBrightnessNormalized = gammaCorrection(brightnessPercent, LED_GAMMA); 
-        uint32_t max_duty = (1 << LED_RESOLUTION_BITS) - 1;
-        uint32_t pwmValue = constrain((uint32_t)(correctedBrightnessNormalized * max_duty), (uint32_t)0, max_duty);
-        if (ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_LEDC_CHANNEL_NUM, pwmValue) == ESP_OK) {
-            ledc_update_duty(LEDC_LOW_SPEED_MODE, LED_LEDC_CHANNEL_NUM);
-        } else {
-            Serial.println("Error setting LEDC duty.");
+
+void applyLedBrightness(int percent) {
+    if (isBatteryCritical && percent > 0) { 
+        percent = 0;
+    }
+    g_current_led_brightness_percent = constrain(percent, 0, 100);
+    float correctedBrightnessNormalized = gammaCorrection(static_cast<float>(g_current_led_brightness_percent), LED_GAMMA);
+    uint32_t max_duty = (1 << LED_RESOLUTION_BITS) - 1;
+    uint32_t pwmValue = constrain(static_cast<uint32_t>(correctedBrightnessNormalized * max_duty), static_cast<uint32_t>(0), max_duty);
+    
+    if (ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_LEDC_CHANNEL_NUM, pwmValue) == ESP_OK) {
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LED_LEDC_CHANNEL_NUM);
+    }
+}
+
+void handleLedControl(uint8_t clientId, JsonDocument& doc) { 
+    lastClientActivityTimestamp = millis();
+    if (doc.containsKey("brightness")) { 
+        int brightnessPercent = doc["brightness"];
+        if (!isBatteryCritical || brightnessPercent == 0) { 
+             applyLedBrightness(brightnessPercent);
         }
-        server.send(200, "text/plain", "OK_LED"); 
-    } else { 
-        server.send(400, "text/plain", "Missing brightness parameter"); 
     } 
 }
 
 // --- Servo Control Functions ---
 void initServos() { 
-    ESP32PWM::allocateTimer(1); // Allocate a timer for ESP32Servo library (can be 0, 1, 2, or 3)
-    ESP32PWM::allocateTimer(3); // Allocate another timer if using multiple servos on different timers
+    ESP32PWM::allocateTimer(0); 
+    ESP32PWM::allocateTimer(1); 
     servoLeft.attach(SERVO_LEFT_PIN); 
     servoRight.attach(SERVO_RIGHT_PIN);
-    servoLeft.writeMicroseconds(servo_left_stop_us);    // Set to calibrated stop position
-    servoRight.writeMicroseconds(servo_right_stop_us);  // Set to calibrated stop position
-    Serial.println("Servos initialized and set to stop positions.");
+    servoLeft.writeMicroseconds(servo_left_stop_us);    
+    servoRight.writeMicroseconds(servo_right_stop_us);  
 }
-// Calculates servo pulse width based on control input (-1.0 to 1.0) and calibration.
+
 int getCalibratedServoPulse(float controlValue, int stop_us, int pulse_deadzone_us, float input_deadzone_threshold) { 
-    controlValue = constrain(controlValue, -1.0, 1.0);
-    if (abs(controlValue) < input_deadzone_threshold) return stop_us; // Apply input deadzone
-    
+    controlValue = constrain(controlValue, -1.0f, 1.0f);
+    if (abs(controlValue) < input_deadzone_threshold) return stop_us; 
     int max_cw_us = stop_us + SERVO_PULSE_SPAN_US; 
     int max_ccw_us = stop_us - SERVO_PULSE_SPAN_US; 
-    
-    if (controlValue > 0) { // Clockwise / Forward
-        return map(controlValue * 1000, (int)(input_deadzone_threshold * 1000), 1000, stop_us + pulse_deadzone_us, max_cw_us);
-    } else { // Counter-Clockwise / Backward
-        return map(controlValue * 1000, -1000, -(int)(input_deadzone_threshold * 1000), max_ccw_us, stop_us - pulse_deadzone_us);
+    if (controlValue > 0) { 
+        return static_cast<int>(map(static_cast<long>(controlValue * 1000), static_cast<long>(input_deadzone_threshold * 1000), 1000L, stop_us + pulse_deadzone_us, max_cw_us));
+    } else { 
+        return static_cast<int>(map(static_cast<long>(controlValue * 1000), -1000L, -static_cast<long>(input_deadzone_threshold * 1000), max_ccw_us, stop_us - pulse_deadzone_us));
     } 
 }
-// Processes joystick input (x, y) to control servo speeds for differential drive.
+
 void processJoystickControlServos(float x, float y) { 
-    float leftSpeed = y; float rightSpeed = y; // Base speed from Y-axis
-    // Apply differential steering based on X-axis
-    if (x > 0.05) { // Turning right
-        rightSpeed = y * (1.0 - (x * 1.5)); 
-        if (fabs(y) < 0.15) { leftSpeed = x; rightSpeed = -x; } // Pivot turn if y (forward/backward) is small
-    } else if (x < -0.05) { // Turning left
-        leftSpeed = y * (1.0 + (x * 1.5)); 
-        if (fabs(y) < 0.15) { leftSpeed = x; rightSpeed = -x; } // Pivot turn
+    if (isBatteryCritical) { 
+        servoLeft.writeMicroseconds(servo_left_stop_us);
+        servoRight.writeMicroseconds(servo_right_stop_us);
+        return;
+    }
+    float leftSpeed = y; float rightSpeed = y; 
+    if (x > 0.05f) { 
+        rightSpeed = y * (1.0f - (x * 1.5f)); 
+        if (fabs(y) < 0.15f) { leftSpeed = x; rightSpeed = -x; } 
+    } else if (x < -0.05f) { 
+        leftSpeed = y * (1.0f + (x * 1.5f)); 
+        if (fabs(y) < 0.15f) { leftSpeed = x; rightSpeed = -x; } 
     } 
-    leftSpeed = constrain(leftSpeed, -1.0, 1.0); 
-    rightSpeed = constrain(rightSpeed, -1.0, 1.0);
+    leftSpeed = constrain(leftSpeed, -1.0f, 1.0f); 
+    rightSpeed = constrain(rightSpeed, -1.0f, 1.0f);
     int leftPulse = getCalibratedServoPulse(leftSpeed, servo_left_stop_us, servo_left_pulse_deadzone_us);
-    int rightPulse = getCalibratedServoPulse(-rightSpeed, servo_right_stop_us, servo_right_pulse_deadzone_us); // Right servo often needs inverted control
+    int rightPulse = getCalibratedServoPulse(-rightSpeed, servo_right_stop_us, servo_right_pulse_deadzone_us); 
     servoLeft.writeMicroseconds(leftPulse); 
     servoRight.writeMicroseconds(rightPulse); 
 }
-// Processes slider inputs to control servo speeds independently.
+
 void processSlidersControlServos(float leftSlider, float rightSlider) { 
-    int leftPulse = getCalibratedServoPulse(constrain(leftSlider, -1.0, 1.0), servo_left_stop_us, servo_left_pulse_deadzone_us);
-    int rightPulse = getCalibratedServoPulse(constrain(-rightSlider, -1.0, 1.0), servo_right_stop_us, servo_right_pulse_deadzone_us); // Invert right servo
+    if (isBatteryCritical) { 
+        servoLeft.writeMicroseconds(servo_left_stop_us);
+        servoRight.writeMicroseconds(servo_right_stop_us);
+        return;
+    }
+    int leftPulse = getCalibratedServoPulse(constrain(leftSlider, -1.0f, 1.0f), servo_left_stop_us, servo_left_pulse_deadzone_us);
+    int rightPulse = getCalibratedServoPulse(constrain(-rightSlider, -1.0f, 1.0f), servo_right_stop_us, servo_right_pulse_deadzone_us); 
     servoLeft.writeMicroseconds(leftPulse); 
     servoRight.writeMicroseconds(rightPulse);
 }
@@ -1367,28 +1887,21 @@ void processSlidersControlServos(float leftSlider, float rightSlider) {
 // --- LiPo ADC Reading ---
 float readLipoVoltage() { 
     uint32_t adc_reading = 0; 
-    for (int i = 0; i < 64; i++) { adc_reading += analogRead(LIPO_ADC_PIN); } // Oversample for stability
-    adc_reading /= 64;
-    float voltageAtPin = adc_reading * (DEFAULT_ADC_REF_VOLTAGE / ((1 << ADC_RESOLUTION_BITS) -1.0) );
+    for (int i = 0; i < 16; i++) { adc_reading += analogRead(LIPO_ADC_PIN); } 
+    adc_reading /= 16;
+    float voltageAtPin = adc_reading * (DEFAULT_ADC_REF_VOLTAGE / (static_cast<float>((1 << ADC_RESOLUTION_BITS) -1.0)) );
     return voltageAtPin * lipo_calib_voltage_divider_ratio; 
-}
-// HTTP Handler: Returns current LiPo voltage.
-void handleLipoVoltage() { 
-    float voltage = readLipoVoltage(); 
-    server.send(200, "text/plain", String(voltage, 2)); 
 }
 
 // --- Stream Handling Functions ---
-// Initializes the rolling average filter structure.
 ra_filter_t* ra_filter_init(ra_filter_t* filter, size_t sample_size) { 
     memset(filter, 0, sizeof(ra_filter_t)); 
-    filter->values = (int*)malloc(sample_size * sizeof(int)); 
-    if (!filter->values) { Serial.println("Failed to allocate RA filter values!"); return nullptr; } 
-    memset(filter->values, 0, sample_size * sizeof(int)); 
-    filter->size = sample_size; 
+    filter->values = ra_values_array;       
+    filter->size = sample_size;             
+    if (!filter->values) { return nullptr; } 
     return filter; 
 }
-// Adds a new value to the filter and returns the current average.
+
 int ra_filter_run(ra_filter_t* filter, int value) { 
     if (!filter->values || filter->size == 0) return value; 
     filter->sum -= filter->values[filter->index]; 
@@ -1400,272 +1913,477 @@ int ra_filter_run(ra_filter_t* filter, int value) {
     return filter->sum / filter->count; 
 }
 
-// HTTP Handler: Starts the MJPEG video stream for a client.
-// If a stream is already active, it disconnects the old client and serves the new one.
-void handleStartStream() {
-    WiFiClient newStreamClient = server.client(); // Get the client that made the request
-
-    if (!newStreamClient || !newStreamClient.connected()) {
-        if (newStreamClient) newStreamClient.stop(); // Clean up if object was created but not connected
-        Serial.println("Stream request from disconnected client.");
+// This function is called by the HTTP GET /stream route
+void handleStartStreamForHttpRequest() {
+    lastClientActivityTimestamp = millis();
+    if (isBatteryCritical) {
+        server.send(503, "text/plain", "Battery critical, stream disabled.");
         return;
     }
 
-    if (isStreaming) {
-        Serial.println("Switching video stream to new client...");
-        if (streamClient && streamClient.connected()) {
-            streamClient.stop(); // Stop the connection to the old client
+    if (!isStreaming) { 
+        // This means the /stream HTTP endpoint was hit without a prior WebSocket "start_stream" command.
+        // For robustness, we can allow it, but it's not the primary intended flow.
+        // Serial.println("HTTP /stream hit without WS pre-signal. Starting stream."); // No Serial
+        isStreaming = true; 
+        broadcastStatusUpdate(); // Inform WS clients that stream is now active
+    }
+    
+    // If another HTTP stream client is already active, stop it.
+    if (streamTaskHandle != NULL && streamClient && streamClient.connected() && streamClient != server.client()) { 
+        // This logic might be redundant if streamTaskHandle correctly nullifies on client disconnect
+        // but added as a safeguard for direct HTTP /stream requests from multiple sources.
+        bool oldIsStreaming = isStreaming; // Store current state
+        isStreaming = false; // Signal old task to stop
+        streamClient.stop(); 
+        vTaskDelay(pdMS_TO_TICKS(250)); 
+        if (eTaskGetState(streamTaskHandle) != eDeleted) {
+             vTaskDelete(streamTaskHandle);
         }
-        isStreaming = false; // Signal the old streamTask to stop
-        
-        // Brief delay to allow the old task to detect client disconnection and terminate
-        vTaskDelay(pdMS_TO_TICKS(100)); // Increased delay slightly for task cleanup
+        streamTaskHandle = NULL;
+        isStreaming = oldIsStreaming; // Restore intended streaming state for the new client
     }
-
-    streamClient = newStreamClient; // Assign the new client to the global variable
-
-    // Send MJPEG headers to the new client
-    String response = "HTTP/1.1 200 OK\r\n";
-    response += "Access-Control-Allow-Origin: *\r\n"; // Allow cross-origin requests
-    response += "Content-Type: " + String(STREAM_CONTENT_TYPE) + "\r\n";
-    response += "Connection: keep-alive\r\n"; // Keep the connection open for streaming
-    response += "Cache-Control: no-cache, no-store, must-revalidate, pre-check=0, post-check=0, max-age=0\r\n";
-    response += "Pragma: no-cache\r\n";
-    response += "Expires: -1\r\n\r\n"; 
     
-    if (streamClient.print(response) != response.length()) {
-        Serial.println("Failed to send stream headers to new client.");
-        streamClient.stop();
+    streamClient = server.client(); 
+    if (!streamClient || !streamClient.connected()) { 
         isStreaming = false; 
-        return;
+        broadcastStatusUpdate();
+        return; 
     }
 
-    isStreaming = true; // Set flag for the new stream
+    String response = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: " + String(STREAM_CONTENT_TYPE) + "\r\nConnection: keep-alive\r\nCache-Control: no-cache, no-store, must-revalidate, pre-check=0, post-check=0, max-age=0\r\nPragma: no-cache\r\nExpires: -1\r\n\r\n"; 
+    if (streamClient.print(response) != response.length()) { 
+        streamClient.stop(); 
+        isStreaming = false; 
+        broadcastStatusUpdate();
+        return; 
+    }
     
-    // Create a new task for the new client. The old task (if any) should self-terminate.
-    xTaskCreatePinnedToCore(
-        streamTask, 
-        "StreamTask", 
-        STREAM_TASK_STACK_SIZE, 
-        NULL, // No parameters passed to the task
-        STREAM_TASK_PRIORITY, 
-        NULL, // No task handle stored globally for this simple handover
-        STREAM_TASK_CORE
-    );
-    Serial.println("Video stream task started/switched for new client.");
-}
-
-// HTTP Handler: Signals the stream task to stop.
-void handleStopStream() { 
-    if (isStreaming) {
-        isStreaming = false; // Signal the current streamTask to stop
-        Serial.println("Stream stop requested by client.");
+    if (streamTaskHandle == NULL) { // Only create task if not already running
+        xTaskCreatePinnedToCore( streamTask, "StreamTask", STREAM_TASK_STACK_SIZE, NULL, STREAM_TASK_PRIORITY, &streamTaskHandle, STREAM_TASK_CORE );
     }
-    server.send(200, "text/plain", "Stream stop requested.");
 }
 
-// HTTP Handler: Returns stream status (active, FPS).
-void handleStreamStatus() { 
-    float fps = 0; 
-    if (ra_filter.count > 0 && ra_filter.sum > 0) { 
-        uint32_t avg_frame_time_us = ra_filter.sum / ra_filter.count; 
-        if (avg_frame_time_us > 0) fps = 1000000.0 / avg_frame_time_us; 
+
+void handleStopStream(uint8_t clientId) { // clientId can be 0 if from HTTP
+    lastClientActivityTimestamp = millis();
+    if (isStreaming) { // Only act if currently streaming
+        isStreaming = false; // Signal streamTask to stop
+        // The streamTask will handle closing streamClient and deleting itself.
     }
-    StaticJsonDocument<128> doc; 
-    doc["streaming"] = isStreaming; 
-    doc["fps"] = round(fps * 10) / 10.0; // Round FPS to one decimal place
-    String response; 
-    serializeJson(doc, response); 
-    server.send(200, "application/json", response);
+    
+    broadcastStatusUpdate(); // Update all WebSocket clients
+
+    if (clientId == 0 && server.uri() == "/stopstream") { // If called from HTTP
+         server.sendHeader("Connection", "close");
+         server.send(200, "text/plain", "Stream stop requested.");
+    }
 }
 
-// Sends a single MJPEG frame to the connected streamClient.
 bool sendMJPEGFrame(const uint8_t* buf, size_t len) { 
-    if (!streamClient || !streamClient.connected()) { isStreaming = false; return false; } // Client disconnected
-    if (streamClient.print(STREAM_BOUNDARY) != strlen(STREAM_BOUNDARY)) { isStreaming = false; return false; } // Failed to send boundary
+    if (!streamClient || !streamClient.connected()) { isStreaming = false; return false; } 
+    if (streamClient.print(STREAM_BOUNDARY) != strlen(STREAM_BOUNDARY)) { isStreaming = false; return false; } 
     char hdrBuf[HDR_BUF_LEN]; 
-    snprintf(hdrBuf, HDR_BUF_LEN, STREAM_PART, len); // Format part header with content length
-    if (streamClient.print(hdrBuf) != strlen(hdrBuf)) { isStreaming = false; return false; } // Failed to send part header
-    if (streamClient.write(buf, len) != len) { isStreaming = false; return false; } // Failed to send frame data
-    if (streamClient.print("\r\n") != 2) { isStreaming = false; return false; } // Failed to send CRLF after frame
+    snprintf(hdrBuf, HDR_BUF_LEN, STREAM_PART, len); 
+    if (streamClient.print(hdrBuf) != strlen(hdrBuf)) { isStreaming = false; return false; } 
+    if (streamClient.write(buf, len) != len) { isStreaming = false; return false; } 
+    if (streamClient.print("\r\n") != 2) { isStreaming = false; return false; } 
     return true; 
 }
 
-// Task responsible for capturing frames and sending them to the streamClient.
-// Runs on Core 1.
 void streamTask(void* parameter) { 
-    (void)parameter; // Unused parameter
+    (void)parameter; 
     camera_fb_t *fb = NULL; 
     int64_t last_frame_us = esp_timer_get_time();
-
-    // Allocate stream buffer if needed (only if camera format isn't already JPEG)
-    // Note: CAM_PIXEL_FORMAT is set to PIXFORMAT_JPEG, so this buffer is a fallback.
+    
     if (!streamBuffer && CAM_PIXEL_FORMAT != PIXFORMAT_JPEG) { 
-        streamBuffer = (uint8_t*)ps_malloc(MAX_FRAME_SIZE); 
+        streamBuffer = static_cast<uint8_t*>(ps_malloc(MAX_FRAME_SIZE)); 
         if (!streamBuffer) { 
-            Serial.println("FATAL: Failed to allocate stream buffer! Stream task cannot run."); 
-            isStreaming = false; // Ensure global flag is correct
-            vTaskDelete(NULL); // Delete self if buffer allocation fails
+            isStreaming = false; 
+            streamTaskHandle = NULL; 
+            broadcastStatusUpdate();
+            vTaskDelete(NULL); 
             return;
         } 
     }
     
-    Serial.println("Stream task instance running for a client.");
-
-    while (isStreaming) { // Primary loop condition: global flag
-        if (!streamClient || !streamClient.connected()) { // Check if this specific client is still connected
-            Serial.println("Stream client disconnected in task. Ending this stream instance.");
-            isStreaming = false; // This task is no longer the active stream
+    while (isStreaming) { 
+        if (isBatteryCritical) { 
+            isStreaming = false; 
+            break;
+        }
+        lastClientActivityTimestamp = millis(); 
+        if (!streamClient || !streamClient.connected()) { 
             break; 
         }
-        // This check is redundant if CAM_PIXEL_FORMAT is JPEG, but good for robustness
-        if (!streamBuffer && CAM_PIXEL_FORMAT != PIXFORMAT_JPEG) { 
-             Serial.println("Stream buffer missing for non-JPEG frame, exiting task.");
-             isStreaming = false;
-             break;
-        }
-
-        fb = esp_camera_fb_get(); // Get a frame from the camera
+        
+        fb = esp_camera_fb_get(); 
         if (!fb) { 
-            Serial.println("Camera frame capture failed in stream task.");
-            vTaskDelay(pdMS_TO_TICKS(100)); // Wait a bit before retrying
+            vTaskDelay(pdMS_TO_TICKS(50)); 
             continue; 
         }
         
         bool success = false;
-        if (fb->format == PIXFORMAT_JPEG) { // If frame is already JPEG, send directly
+        if (fb->format == PIXFORMAT_JPEG) { 
             success = sendMJPEGFrame(fb->buf, fb->len); 
         } else { 
-            // This path should not be taken if CAM_PIXEL_FORMAT is correctly set to PIXFORMAT_JPEG
-            Serial.println("Warning: Frame format is not JPEG as expected. Cannot stream.");
-            success = false; // Treat as failure if format is unexpectedly not JPEG
+            success = false; 
         }
         
-        esp_camera_fb_return(fb); // Return frame buffer to camera driver
+        esp_camera_fb_return(fb); 
         fb = NULL; 
 
         if (!success) { 
-            Serial.println("Failed to send MJPEG frame or unsupported format. Stopping stream for this client.");
-            isStreaming = false; // Signal to stop this task
             break; 
         }
         
-        // Calculate and filter frame time for FPS
         int64_t fr_end_us = esp_timer_get_time(); 
         int64_t frame_time_us = fr_end_us - last_frame_us;
         last_frame_us = fr_end_us; 
-        ra_filter_run(&ra_filter, frame_time_us); 
+        ra_filter_run(&ra_filter, static_cast<int>(frame_time_us)); 
         
-        vTaskDelay(pdMS_TO_TICKS(STREAM_DELAY_MS)); // Small delay to control frame rate and yield CPU
+        vTaskDelay(pdMS_TO_TICKS(STREAM_DELAY_MS)); 
     }
 
-    // Cleanup for this specific task instance
     if (streamClient && streamClient.connected()) {
-        streamClient.stop(); // Ensure this client connection is closed
+        streamClient.stop(); 
     }
-    // The global isStreaming flag might have been set to false by another part of the code 
-    // (e.g., a new client connecting or handleStopStream). This task just cleans up itself.
-    Serial.println("Stream task instance ended.");
-    vTaskDelete(NULL); // Task deletes itself
+    
+    if (xTaskGetCurrentTaskHandle() == streamTaskHandle) {
+        streamTaskHandle = NULL;
+    }
+    isStreaming = false; // Ensure this is false when task ends
+    broadcastStatusUpdate(); // Update clients that stream is no longer active
+    vTaskDelete(NULL); 
 }
+
+// --- Sleep Mode Preference Handlers (via WebSocket) ---
+void handleGetSleepModePref(uint8_t clientId) {
+    StaticJsonDocument<100> doc;
+    doc["type"] = "sleep_mode_pref";
+    doc["enabled"] = g_light_sleep_enabled;
+    String response; serializeJson(doc, response);
+    webSocket.sendTXT(clientId, response);
+}
+
+void handleSetSleepModePref(uint8_t clientId, JsonDocument& doc) {
+    if (doc.containsKey("enabled")) {
+        g_light_sleep_enabled = doc["enabled"];
+        saveSleepModePrefToNVS(); 
+        
+        StaticJsonDocument<100> ackDoc;
+        ackDoc["type"] = "command_ack";
+        ackDoc["command"] = "set_sleep_mode";
+        ackDoc["status"] = g_light_sleep_enabled ? "Light sleep enabled." : "Light sleep disabled.";
+        String response; serializeJson(ackDoc, response);
+        webSocket.sendTXT(clientId, response);
+    }
+}
+
+// --- Set New Wi-Fi Credentials (via WebSocket, typically in AP Mode) ---
+void handleSetWiFiCredentials(uint8_t clientId, JsonDocument& doc) {
+    lastClientActivityTimestamp = millis(); 
+    if (doc.containsKey("ssid") && doc.containsKey("password")) {
+        String ssid = doc["ssid"];
+        String password = doc["password"];
+        saveWiFiCredentialsToNVS(ssid.c_str(), password.c_str());
+
+        StaticJsonDocument<100> ackDoc;
+        ackDoc["type"] = "command_ack";
+        ackDoc["command"] = "set_wifi_credentials";
+        ackDoc["status"] = "Wi-Fi credentials saved. Robot will restart.";
+        String response; serializeJson(ackDoc, response);
+        webSocket.sendTXT(clientId, response);
+        
+        // Visual indication of restart
+        for (int i=0; i<10; ++i) { // Blink for ~2 seconds
+            applyLedBrightness(50); delay(100);
+            applyLedBrightness(0); delay(100);
+        }
+        delay(1000); 
+        ESP.restart();
+    }
+}
+
+// --- Camera Settings Handler (via WebSocket) ---
+void handleCameraSettings(uint8_t clientId, JsonDocument& doc) {
+    lastClientActivityTimestamp = millis();
+    sensor_t * s = esp_camera_sensor_get();
+    if (!s) { 
+        StaticJsonDocument<100> errDoc; errDoc["type"] = "error"; errDoc["message"] = "Camera sensor error";
+        String response; serializeJson(errDoc, response); webSocket.sendTXT(clientId, response);
+        return; 
+    }
+    bool settings_changed_applied = false;
+    bool success = true;
+
+    if (doc.containsKey("resolution")) {
+        framesize_t newSize = stringToFramesize(doc["resolution"].as<String>());
+        if (s->status.framesize != newSize) { 
+            if(s->set_framesize(s, newSize) == ESP_OK) { nvs_cam_framesize = newSize; settings_changed_applied = true; }
+            else { success = false; }
+        }
+    }
+    if (doc.containsKey("quality")) {
+        int quality = constrain(doc["quality"].as<int>(), 10, 63);
+        if (s->status.quality != quality) { 
+            if (s->set_quality(s, quality) == ESP_OK) { nvs_cam_quality = quality; settings_changed_applied = true; }
+            else { success = false; }
+        }
+    }
+    if (doc.containsKey("brightness")) {
+        int val = constrain(doc["brightness"].as<int>(), -2, 2);
+        if (s->set_brightness(s, val) == ESP_OK) { nvs_cam_brightness = val; settings_changed_applied = true;}
+        else { success = false; }
+    }
+    if (doc.containsKey("contrast")) {
+        int val = constrain(doc["contrast"].as<int>(), -2, 2);
+        if (s->set_contrast(s, val) == ESP_OK) { nvs_cam_contrast = val; settings_changed_applied = true;}
+        else { success = false; }
+    }
+    if (doc.containsKey("saturation")) {
+        int val = constrain(doc["saturation"].as<int>(), -2, 2);
+        if (s->set_saturation(s, val) == ESP_OK) { nvs_cam_saturation = val; settings_changed_applied = true;}
+        else { success = false; }
+    }
+
+    if (settings_changed_applied && success) { saveCameraSettingsToNVS(); }
+    
+    StaticJsonDocument<150> ackDoc;
+    ackDoc["type"] = "command_ack";
+    ackDoc["command"] = "set_camera_settings";
+    if (!success) { ackDoc["status"] = "Failed to apply one or more camera settings."; }
+    else { ackDoc["status"] = settings_changed_applied ? "Camera Settings Saved" : "NoChange_Camera"; }
+    String response; serializeJson(ackDoc, response);
+    webSocket.sendTXT(clientId, response);
+}
+
+
+// --- WebSocket Event Handler ---
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    lastClientActivityTimestamp = millis(); 
+    switch(type) {
+        case WStype_DISCONNECTED:
+            break;
+        case WStype_CONNECTED: {
+            IPAddress ip = webSocket.remoteIP(num);
+            
+            StaticJsonDocument<512> statusDoc; 
+            statusDoc["type"] = "status_update"; 
+            statusDoc["lipo_v"] = readLipoVoltage();
+            statusDoc["rssi"] = WiFi.RSSI();
+            statusDoc["wifi_connected"] = (WiFi.status() == WL_CONNECTED);
+            statusDoc["stream_active"] = isStreaming;
+            statusDoc["is_sleeping"] = isLightSleeping;
+            statusDoc["is_ap_mode"] = isInAPMode;
+            sensor_t * s = esp_camera_sensor_get();
+            if(s){
+                statusDoc["resolution"] = framesizeToString(s->status.framesize);
+                statusDoc["quality"] = s->status.quality;
+                statusDoc["brightness"] = s->status.brightness;
+                statusDoc["contrast"] = s->status.contrast;
+                statusDoc["saturation"] = s->status.saturation;
+            }
+            statusDoc["led_brightness"] = g_current_led_brightness_percent;
+            statusDoc["sleep_enabled"] = g_light_sleep_enabled;
+
+            String statusMsg; serializeJson(statusDoc, statusMsg);
+            webSocket.sendTXT(num, statusMsg);
+            break;
+        }
+        case WStype_TEXT: {
+            StaticJsonDocument<256> doc; 
+            DeserializationError error = deserializeJson(doc, payload, length);
+            if (error) {
+                return;
+            }
+
+            const char* command = doc["command"];
+            if (command) {
+                if (strcmp(command, "control") == 0) {
+                    const char* mode = doc["mode"] | "joystick";
+                    if (strcmp(mode, "joystick") == 0) {
+                        float x = doc["x"] | 0.0f; float y = doc["y"] | 0.0f;
+                        processJoystickControlServos(x,y);
+                    } else if (strcmp(mode, "sliders") == 0) {
+                        float l = doc["left"] | 0.0f; float r = doc["right"] | 0.0f;
+                        processSlidersControlServos(l,r);
+                    }
+                } else if (strcmp(command, "set_led") == 0) {
+                    handleLedControl(num, doc);
+                } else if (strcmp(command, "set_camera_settings") == 0) {
+                    handleCameraSettings(num, doc);
+                } else if (strcmp(command, "stream_control") == 0) { 
+                    const char* action = doc["action"];
+                    if (action) {
+                        if (strcmp(action, "start") == 0) {
+                            isStreaming = true; 
+                            // The actual stream task is started by the HTTP GET /stream request
+                            // This WS command just sets the state and informs clients.
+                            broadcastStatusUpdate(); 
+                        } else if (strcmp(action, "stop") == 0) {
+                            isStreaming = false; 
+                            broadcastStatusUpdate(); 
+                        }
+                    }
+                } else if (strcmp(command, "get_calibration") == 0) {
+                    handleGetCalibration(num);
+                } else if (strcmp(command, "set_calibration") == 0) {
+                    handleSetCalibration(num, doc);
+                } else if (strcmp(command, "reset_calibration") == 0) {
+                    handleResetCalibration(num);
+                } else if (strcmp(command, "get_sleep_mode_pref") == 0) {
+                    handleGetSleepModePref(num);
+                } else if (strcmp(command, "set_sleep_mode") == 0) {
+                    handleSetSleepModePref(num, doc);
+                } else if (strcmp(command, "set_wifi_credentials") == 0) {
+                    handleSetWiFiCredentials(num, doc);
+                } else if (strcmp(command, "ping") == 0) {
+                    webSocket.sendTXT(num, "{\"type\":\"pong\"}");
+                }
+            }
+            break;
+        }
+        case WStype_BIN:
+        case WStype_ERROR:			
+        case WStype_FRAGMENT_TEXT_START:
+        case WStype_FRAGMENT_BIN_START:
+        case WStype_FRAGMENT:
+        case WStype_FRAGMENT_FIN:
+            break;
+    }
+}
+
+// --- Function to broadcast status updates via WebSocket ---
+void broadcastStatusUpdate() {
+    if (webSocket.connectedClients() > 0) {
+        StaticJsonDocument<512> doc; 
+        doc["type"] = "status_update";
+        doc["lipo_v"] = readLipoVoltage();
+        doc["rssi"] = WiFi.RSSI();
+        doc["wifi_connected"] = (WiFi.status() == WL_CONNECTED);
+        doc["stream_active"] = isStreaming; 
+        doc["is_sleeping"] = isLightSleeping;
+        doc["is_ap_mode"] = isInAPMode;
+
+        float current_lipo_v = doc["lipo_v"];
+        if (current_lipo_v < BATTERY_CRITICAL_VOLTAGE) {
+            doc["battery_status"] = "critical";
+            isBatteryCritical = true;
+        } else if (current_lipo_v < BATTERY_LOW_WARN_VOLTAGE) {
+            doc["battery_status"] = "low";
+            isBatteryCritical = false;
+        } else {
+            doc["battery_status"] = "ok";
+            isBatteryCritical = false;
+        }
+        
+        if (isStreaming && ra_filter.count > 0 && ra_filter.sum > 0) {
+            uint32_t avg_frame_time_us = ra_filter.sum / ra_filter.count;
+            if (avg_frame_time_us > 0) {
+                doc["fps"] = round((1000000.0f / avg_frame_time_us) * 10) / 10.0f;
+            } else {
+                doc["fps"] = 0;
+            }
+        } else {
+            doc["fps"] = 0;
+        }
+
+        String response;
+        serializeJson(doc, response);
+        webSocket.broadcastTXT(response);
+    }
+}
+
 
 // --- Web Server Route Definitions ---
 void setupWebServerRoutes() { 
-    server.on("/", HTTP_GET, []() { if (!checkAuthentication()) return; server.sendHeader("Connection", "close"); server.send(200, "text/html", htmlContent); });
-    server.on("/ping", HTTP_GET, []() { server.send(200, "text/plain", "pong from ESP32-CAM Robot v3.2.0"); });
+    server.on("/", HTTP_GET, []() { 
+        if (!checkAuthentication()) return; 
+        lastClientActivityTimestamp = millis();
+        server.sendHeader("Connection", "close"); 
+        server.send_P(200, "text/html", htmlContentFlash); 
+    });
+    server.on("/ping", HTTP_GET, []() { 
+        if (!checkAuthentication()) return;
+        lastClientActivityTimestamp = millis();
+        server.sendHeader("Connection", "close");
+        server.send(200, "text/plain", "pong_http"); 
+    });
     
-    // Apply authentication directly to the /stream endpoint
-    server.on("/stream", HTTP_GET, [](){ if (!checkAuthentication()) return; handleStartStream(); });
+    server.on("/stream", HTTP_GET, [](){ if (!checkAuthentication()) return; handleStartStreamForHttpRequest(); }); 
+    // HTTP routes for /stopstream, /status, /lipo_voltage, /wifi_status are effectively replaced by WebSocket.
+    // Kept /quality and /camera/settings as HTTP GET for potential direct testing/utility.
     
-    server.on("/stopstream", HTTP_GET, [](){ if (!checkAuthentication()) return; handleStopStream(); });
-    server.on("/status", HTTP_GET, [](){ if (!checkAuthentication()) return; handleStreamStatus(); }); 
-
-    // Handles changes to camera resolution and quality. Saves to NVS.
     server.on("/quality", HTTP_GET, []() { 
         if (!checkAuthentication()) return; 
+        lastClientActivityTimestamp = millis();
         sensor_t * s = esp_camera_sensor_get(); 
-        if (!s) { server.send(500, "text/plain", "Camera sensor error"); return; }
+        if (!s) { server.sendHeader("Connection", "close"); server.send(500, "text/plain", "Camera sensor error"); return; }
         
         bool settings_changed_applied = false;
+        bool success = true;
+
         if (server.hasArg("resolution")) {
             framesize_t newSize = stringToFramesize(server.arg("resolution"));
             if (s->status.framesize != newSize) { 
-                if(s->set_framesize(s, newSize) == ESP_OK) { 
-                    nvs_cam_framesize = newSize; // Update global for NVS
-                    settings_changed_applied = true;
-                    Serial.printf("Camera resolution changed to: %s\n", server.arg("resolution").c_str());
-                } else {
-                    Serial.printf("Failed to set camera resolution to: %s\n", server.arg("resolution").c_str());
-                }
+                if(s->set_framesize(s, newSize) == ESP_OK) { nvs_cam_framesize = newSize; settings_changed_applied = true; }
+                else { success = false; }
             }
         }
         if (server.hasArg("quality")) {
             int quality = constrain(server.arg("quality").toInt(), 10, 63);
             if (s->status.quality != quality) { 
-                if (s->set_quality(s, quality) == ESP_OK) { 
-                    nvs_cam_quality = quality; // Update global for NVS
-                    settings_changed_applied = true;
-                    Serial.printf("Camera quality changed to: %d\n", quality);
-                } else {
-                     Serial.printf("Failed to set camera quality to: %d\n", quality);
-                }
+                if (s->set_quality(s, quality) == ESP_OK) { nvs_cam_quality = quality; settings_changed_applied = true; }
+                else { success = false; }
             }
         }
-        if (settings_changed_applied) {
-            saveCameraSettingsToNVS(); // Save updated camera settings to NVS
+        if (server.hasArg("brightness")) {
+            int val = constrain(server.arg("brightness").toInt(), -2, 2);
+            if (s->set_brightness(s, val) == ESP_OK) { nvs_cam_brightness = val; settings_changed_applied = true;}
+            else { success = false; }
         }
-        server.send(200, "text/plain", settings_changed_applied ? "OK_Quality_Saved" : "NoChange_Quality");
+        if (server.hasArg("contrast")) {
+            int val = constrain(server.arg("contrast").toInt(), -2, 2);
+            if (s->set_contrast(s, val) == ESP_OK) { nvs_cam_contrast = val; settings_changed_applied = true;}
+            else { success = false; }
+        }
+        if (server.hasArg("saturation")) {
+            int val = constrain(server.arg("saturation").toInt(), -2, 2);
+            if (s->set_saturation(s, val) == ESP_OK) { nvs_cam_saturation = val; settings_changed_applied = true;}
+            else { success = false; }
+        }
+
+        if (settings_changed_applied && success) { saveCameraSettingsToNVS(); }
+        server.sendHeader("Connection", "close");
+        if (!success) { server.send(500, "text/plain", "Failed to apply one or more camera settings."); }
+        else { server.send(200, "text/plain", settings_changed_applied ? "OK_Quality_Saved" : "NoChange_Quality"); }
     });
 
-    // Returns current ACTIVE camera settings (resolution and quality).
     server.on("/camera/settings", HTTP_GET, []() { 
         if (!checkAuthentication()) return; 
+        lastClientActivityTimestamp = millis();
         sensor_t * s = esp_camera_sensor_get(); 
-        if (!s) { server.send(500, "text/plain", "Camera sensor error"); return; }
-        StaticJsonDocument<128> doc; 
+        if (!s) { server.sendHeader("Connection", "close"); server.send(500, "text/plain", "Camera sensor error"); return; }
+        StaticJsonDocument<256> doc; 
         doc["resolution"] = framesizeToString(s->status.framesize); 
         doc["quality"] = s->status.quality;
+        doc["brightness"] = s->status.brightness;
+        doc["contrast"] = s->status.contrast;
+        doc["saturation"] = s->status.saturation;
         String response; 
         serializeJson(doc, response); 
+        server.sendHeader("Connection", "close");
         server.send(200, "application/json", response);
     });
-
-    server.on("/led", HTTP_GET, [](){ if (!checkAuthentication()) return; handleLedControl(); });
-    server.on("/control", HTTP_POST, []() { 
-        if (!checkAuthentication()) return; 
-        StaticJsonDocument<200> doc; 
-        DeserializationError error = deserializeJson(doc, server.arg("plain"));
-        if (error) { server.send(400, "text/plain", "Invalid JSON"); return; } 
-        const char* mode_str = doc["mode"] | "joystick"; 
-        // Check if it's just a mode switch request (only "mode" key present)
-        if (doc.containsKey("mode") && !doc.containsKey("x") && !doc.containsKey("y") && !doc.containsKey("left") && !doc.containsKey("right")) {
-            if (strcmp(mode_str, "joystick") == 0) currentControlMode = JOYSTICK; 
-            else if (strcmp(mode_str, "sliders") == 0) currentControlMode = SLIDERS;
-            processJoystickControlServos(0,0); // Stop servos on mode switch
-            Serial.printf("Control mode switched to: %s\n", mode_str);
-        } else { // It's a movement command
-            if (strcmp(mode_str, "joystick") == 0) { 
-                currentControlMode = JOYSTICK; 
-                float x = doc["x"] | 0.0f; float y = doc["y"] | 0.0f; 
-                processJoystickControlServos(x, y); 
-            } else if (strcmp(mode_str, "sliders") == 0) { 
-                currentControlMode = SLIDERS; 
-                float left = doc["left"] | 0.0f; float right = doc["right"] | 0.0f; 
-                processSlidersControlServos(left, right); 
-            }
-        } 
-        server.send(200, "text/plain", "OK_Control");
-    });
-    server.on("/lipo_voltage", HTTP_GET, [](){ if (!checkAuthentication()) return; handleLipoVoltage(); });
     
-    // Calibration endpoints
-    server.on("/get_calibration", HTTP_GET, handleGetCalibration); 
-    server.on("/set_calibration", HTTP_POST, handleSetCalibration); 
-    server.on("/reset_calibration", HTTP_POST, handleResetCalibration);
-
-    server.onNotFound([](){ server.send(404, "text/plain", "Not Found"); }); 
-    server.begin(); // Start the web server
-    Serial.println("HTTP server started.");
+    server.onNotFound([](){ 
+        if (!checkAuthentication()) return; 
+        lastClientActivityTimestamp = millis();
+        server.sendHeader("Connection", "close");
+        server.send(404, "text/plain", "Not Found"); 
+    }); 
+    server.begin(); 
 }
 
 // --- Helper functions for Camera Settings (Conversion between enum and string) ---
@@ -1688,15 +2406,29 @@ framesize_t stringToFramesize(const String& fsStr) {
     if (fsStr == "SVGA") return FRAMESIZE_SVGA; if (fsStr == "XGA") return FRAMESIZE_XGA; 
     if (fsStr == "HD") return FRAMESIZE_HD; if (fsStr == "SXGA") return FRAMESIZE_SXGA; 
     if (fsStr == "UXGA") return FRAMESIZE_UXGA;
-    return FRAMESIZE_QVGA; // Default fallback if string is not recognized
+    return FRAMESIZE_QVGA; 
 }
 
-// --- HTTP Server Task (Runs on Core 0) ---
+// --- HTTP Server & WebSocket Task (Runs on Core 0) ---
 void TaskHttpServer(void *pvParameters) { 
     (void)pvParameters; 
-    Serial.println("HTTP Server Task running on core " + String(xPortGetCoreID()));
+    unsigned long lastStatusPush = 0;
     for (;;) { 
-        server.handleClient(); // Handle incoming client requests
-        vTaskDelay(pdMS_TO_TICKS(2)); // Small delay to yield CPU
+        if (!otaIsActive && !isLightSleeping) { 
+            server.handleClient(); 
+            webSocket.loop(); 
+
+            if (millis() - lastStatusPush > statusBroadcastInterval) {
+                if(webSocket.connectedClients() > 0 && !isBatteryCritical) { 
+                     broadcastStatusUpdate();
+                }
+                lastStatusPush = millis();
+            }
+        } else if (isLightSleeping) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        } else { 
+             vTaskDelay(pdMS_TO_TICKS(10)); 
+        }
+        vTaskDelay(pdMS_TO_TICKS(2)); 
     } 
 }
